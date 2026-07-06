@@ -1,0 +1,13 @@
+pkgbase = hyprland-zoom
+	pkgdesc = Shell-based zoom controller and bindings for Hyprland
+	pkgver = 0.1.0
+	pkgrel = 4
+	url = https://github.com/artibex/hyprland-zoom
+	install = install/post_install.sh
+	arch = any
+	license = MIT
+	depends = bash
+	depends = hyprland
+	backup = etc/zoomctl.conf
+
+pkgname = hyprland-zoom
