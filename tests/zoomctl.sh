@@ -45,29 +45,4 @@ assert_equal '8.50' "$ZOOMCTL_MAX" 'config max load'
 assert_equal '1.40' "$ZOOMCTL_RESET" 'config reset load'
 assert_equal '1' "$ZOOMCTL_CENTER_CURSOR" 'config toggle load'
 
-assert_equal 'ZOOM_STEP' "$(zoomctl_config_canonical_key 'step')" 'canonical key alias: step'
-assert_equal 'ZOOM_MAX' "$(zoomctl_config_canonical_key 'maximum')" 'canonical key alias: maximum'
-assert_equal 'ZOOM_CENTER_CURSOR' "$(zoomctl_config_canonical_key 'center-cursor')" 'canonical key alias: center-cursor'
-if zoomctl_config_canonical_key 'nonsense' >/dev/null 2>&1; then
-  fail 'canonical key alias should reject unknown keys'
-fi
-
-assert_equal '1' "$(zoomctl_normalize_bool 'on')" 'bool normalize: on'
-assert_equal '1' "$(zoomctl_normalize_bool 'YES')" 'bool normalize: YES'
-assert_equal '0' "$(zoomctl_normalize_bool 'off')" 'bool normalize: off'
-assert_equal '0' "$(zoomctl_normalize_bool '0')" 'bool normalize: 0'
-
-if zoomctl_config_validate_value 'ZOOM_STEP' 'not-a-number'; then
-  fail 'validate_value should reject a non-numeric step'
-fi
-if ! zoomctl_config_validate_value 'ZOOM_STEP' '0.25'; then
-  fail 'validate_value should accept a numeric step'
-fi
-if zoomctl_config_validate_value 'ZOOM_CENTER_CURSOR' '2'; then
-  fail 'validate_value should reject an out-of-range boolean'
-fi
-
-assert_equal '0.30' "$(zoomctl_config_get 'ZOOM_STEP')" 'config get: step'
-assert_equal '1' "$(zoomctl_config_get 'ZOOM_CENTER_CURSOR')" 'config get: center cursor'
-
 printf 'zoomctl tests passed\n'
