@@ -122,13 +122,72 @@ zoomctl_config_load() {
   zoomctl_config_validate
 }
 
+
+# Maps the short, user-friendly names accepted by `zoomctl set`/`zoomctl get`
+# onto the canonical ZOOM_* keys used in config files. Keeping this table in
+# one place means adding a new setting only ever requires touching this file.
+zoomctl_config_canonical_key() {
+  case "$1" in
+    step|zoom-step|ZOOM_STEP) printf 'ZOOM_STEP\n' ;;
+    min|minimum|zoom-min|ZOOM_MIN) printf 'ZOOM_MIN\n' ;;
+    max|maximum|zoom-max|ZOOM_MAX) printf 'ZOOM_MAX\n' ;;
+    reset|zoom-reset|ZOOM_RESET) printf 'ZOOM_RESET\n' ;;
+    center-cursor|center|cursor|ZOOM_CENTER_CURSOR) printf 'ZOOM_CENTER_CURSOR\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+zoomctl_config_get() {
+  case "$1" in
+    ZOOM_STEP) printf '%s\n' "$ZOOMCTL_STEP" ;;
+    ZOOM_MIN) printf '%s\n' "$ZOOMCTL_MIN" ;;
+    ZOOM_MAX) printf '%s\n' "$ZOOMCTL_MAX" ;;
+    ZOOM_RESET) printf '%s\n' "$ZOOMCTL_RESET" ;;
+    ZOOM_CENTER_CURSOR) printf '%s\n' "$ZOOMCTL_CENTER_CURSOR" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Accepts human-friendly boolean spellings for ZOOM_CENTER_CURSOR so
+# `zoomctl set center-cursor on` works as well as the raw 0/1 config value.
+zoomctl_normalize_bool() {
+  case "$1" in
+    1|on|On|ON|true|True|TRUE|yes|Yes|YES) printf '1\n' ;;
+    0|off|Off|OFF|false|False|FALSE|no|No|NO) printf '0\n' ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# Validates a single value for a single key, without touching any other
+# setting or silently substituting a default - used by `zoomctl set` so a
+# typo is reported immediately instead of being masked later.
+zoomctl_config_validate_value() {
+  local key="$1"
+  local value="$2"
+
+  case "$key" in
+    ZOOM_STEP|ZOOM_MIN|ZOOM_MAX|ZOOM_RESET)
+      zoomctl_is_float "$value"
+      ;;
+    ZOOM_CENTER_CURSOR)
+      case "$value" in
+        0|1) return 0 ;;
+        *) return 1 ;;
+      esac
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 zoomctl_config_summary() {
   cat <<EOF
-ZOOM_STEP=$ZOOMCTL_STEP
-ZOOM_MIN=$ZOOMCTL_MIN
-ZOOM_MAX=$ZOOMCTL_MAX
-ZOOM_RESET=$ZOOMCTL_RESET
-ZOOM_CENTER_CURSOR=$ZOOMCTL_CENTER_CURSOR
+ZOOM_STEP=$(zoomctl_config_get ZOOM_STEP)
+ZOOM_MIN=$(zoomctl_config_get ZOOM_MIN)
+ZOOM_MAX=$(zoomctl_config_get ZOOM_MAX)
+ZOOM_RESET=$(zoomctl_config_get ZOOM_RESET)
+ZOOM_CENTER_CURSOR=$(zoomctl_config_get ZOOM_CENTER_CURSOR)
 ZOOM_STATE_DIR=$ZOOMCTL_STATE_DIR
 ZOOMCTL_CONFIG_FILE=$ZOOMCTL_CONFIG_FILE
 EOF

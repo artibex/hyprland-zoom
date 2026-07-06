@@ -18,7 +18,7 @@ It replaces the inline MVP math in `zoom-mvp.conf` with a shell-based `zoomctl` 
 
 1. Install the Arch package.
 2. Run `zoomctl setup` (or let the install hook do it automatically) to wire the keybinds into `~/.config/hypr/hyprland.conf`.
-3. Adjust `/etc/zoomctl.conf` or create `~/.config/zoomctl/zoom.conf` to customize step size, bounds, and cursor centering.
+3. Customize with `zoomctl set <key> <value>`, e.g. `zoomctl set step 0.25` or `zoomctl set center-cursor on`.
 
 ## Commands
 
@@ -28,10 +28,15 @@ It replaces the inline MVP math in `zoom-mvp.conf` with a shell-based `zoomctl` 
 - `zoomctl reset`
 - `zoomctl status`
 - `zoomctl config`
+- `zoomctl set <key> <value>`
+- `zoomctl get <key>`
+- `zoomctl configure`
 - `zoomctl edit-config`
 - `zoomctl setup`
 - `zoomctl ui`
 - `zoomctl uninstall`
+
+See [docs/usage.md](docs/usage.md) for the full list of setting keys accepted by `set`/`get`.
 
 ## Project Layout
 

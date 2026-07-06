@@ -10,27 +10,48 @@
 - `zoomctl reset` clears the stored value and returns to `ZOOM_RESET`.
 - `zoomctl status` prints the current zoom, bounds, and state location.
 - `zoomctl config` prints the active configuration.
+- `zoomctl set <key> <value>` changes a single setting and saves it immediately - no editor, no menu.
+- `zoomctl get <key>` prints the active value of a single setting.
+- `zoomctl configure` prompts for every setting one at a time (menu-driven, uses `zenity`/`yad` when available).
 - `zoomctl edit-config` opens the user config in `$EDITOR`.
 - `zoomctl setup` adds the packaged `hyprland-bindings.conf` include to `~/.config/hypr/hyprland.conf`.
 - `zoomctl ui` opens an interactive menu for zoom actions, settings, and uninstall.
 - `zoomctl uninstall` removes the package when `sudo`, `doas`, or `pkexec` is available.
 
+## Changing settings
+
+The fastest way to change a setting is `zoomctl set`:
+
+```bash
+zoomctl set step 0.25          # zoom step per scroll/keypress
+zoomctl set min 1              # minimum zoom
+zoomctl set max 6              # maximum zoom
+zoomctl set reset 1            # zoom factor used by reset/toggle
+zoomctl set center-cursor on   # or: off
+```
+
+Each call validates the value, saves it to `~/.config/zoomctl/zoom.conf` alongside your other settings, and prints the value that took effect. Invalid input (a non-numeric step, a min greater than the current max, an unrecognized key) is rejected with an error and nothing is written. `zoomctl get <key>` reads a single value back, which is handy in scripts.
+
+`center-cursor` accepts `on`/`off`, `true`/`false`, `yes`/`no`, or the raw `1`/`0` - use whichever reads naturally.
+
+If you'd rather be walked through every setting at once, `zoomctl configure` does that interactively.
+
 ## Configuration
 
 The package installs a default config at `/etc/zoomctl.conf`.
 
-Per-user overrides live in `~/.config/zoomctl/zoom.conf`.
+Per-user overrides live in `~/.config/zoomctl/zoom.conf`, and that's the file `zoomctl set`/`zoomctl configure` write to.
 
 The `zoomctl ui` command will use `wofi`, `rofi`, `fuzzel`, or `bemenu` when available. If none of those are installed, it falls back to a numbered terminal menu.
 
-Supported keys:
+Supported keys, and the short names accepted by `zoomctl set`/`zoomctl get`:
 
-- `ZOOM_STEP`
-- `ZOOM_MIN`
-- `ZOOM_MAX`
-- `ZOOM_RESET`
-- `ZOOM_CENTER_CURSOR`
-- `ZOOMCTL_STATE_DIR`
+- `ZOOM_STEP` (`step`)
+- `ZOOM_MIN` (`min`, `minimum`)
+- `ZOOM_MAX` (`max`, `maximum`)
+- `ZOOM_RESET` (`reset`)
+- `ZOOM_CENTER_CURSOR` (`center-cursor`, `center`, `cursor`)
+- `ZOOMCTL_STATE_DIR` (config file only, not exposed through `set`/`get`)
 
 ## Hyprland Setup
 

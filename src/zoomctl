@@ -206,6 +206,88 @@ EOF
   printf 'zoomctl: wrote %s\n' "$config_file"
 }
 
+zoomctl_command_set_usage() {
+  cat <<'EOF'
+Usage: zoomctl set <key> <value>
+
+Keys:
+  step             zoom step added or removed per zoom in/out (e.g. 0.25)
+  min              minimum allowed zoom factor
+  max              maximum allowed zoom factor
+  reset            zoom factor used for reset and as the toggle baseline
+  center-cursor    recenter the cursor after each zoom action: on/off
+
+Examples:
+  zoomctl set step 0.25
+  zoomctl set max 6
+  zoomctl set center-cursor on
+EOF
+}
+
+zoomctl_command_set() {
+  local requested_key="$1"
+  local requested_value="$2"
+  local canonical_key
+  local applied_value
+
+  if [ -z "$requested_key" ] || [ -z "$requested_value" ]; then
+    zoomctl_command_set_usage >&2
+    return 1
+  fi
+
+  canonical_key="$(zoomctl_config_canonical_key "$requested_key")" || {
+    printf 'zoomctl: unknown setting "%s"\n' "$requested_key" >&2
+    zoomctl_command_set_usage >&2
+    return 1
+  }
+
+  applied_value="$requested_value"
+  if [ "$canonical_key" = 'ZOOM_CENTER_CURSOR' ]; then
+    applied_value="$(zoomctl_normalize_bool "$requested_value")"
+  fi
+
+  if ! zoomctl_config_validate_value "$canonical_key" "$applied_value"; then
+    printf 'zoomctl: "%s" is not a valid value for %s\n' "$requested_value" "$canonical_key" >&2
+    return 1
+  fi
+
+  case "$canonical_key" in
+    ZOOM_MIN)
+      if zoomctl_float_gt "$applied_value" "$ZOOMCTL_MAX"; then
+        printf 'zoomctl: min (%s) cannot be greater than the current max (%s)\n' "$applied_value" "$ZOOMCTL_MAX" >&2
+        return 1
+      fi
+      ;;
+    ZOOM_MAX)
+      if zoomctl_float_gt "$ZOOMCTL_MIN" "$applied_value"; then
+        printf 'zoomctl: max (%s) cannot be less than the current min (%s)\n' "$applied_value" "$ZOOMCTL_MIN" >&2
+        return 1
+      fi
+      ;;
+  esac
+
+  zoomctl_config_apply_setting "$canonical_key" "$applied_value"
+  zoomctl_write_user_config
+  printf 'zoomctl: %s = %s\n' "$canonical_key" "$(zoomctl_config_get "$canonical_key")"
+}
+
+zoomctl_command_get() {
+  local requested_key="$1"
+  local canonical_key
+
+  if [ -z "$requested_key" ]; then
+    printf 'zoomctl: usage: zoomctl get <key>\n' >&2
+    return 1
+  fi
+
+  canonical_key="$(zoomctl_config_canonical_key "$requested_key")" || {
+    printf 'zoomctl: unknown setting "%s"\n' "$requested_key" >&2
+    return 1
+  }
+
+  zoomctl_config_get "$canonical_key"
+}
+
 zoomctl_command_configure() {
   local step
   local minimum
@@ -217,13 +299,13 @@ zoomctl_command_configure() {
   minimum="$(zoomctl_prompt_value 'Minimum zoom' "$ZOOMCTL_MIN")" || return 1
   maximum="$(zoomctl_prompt_value 'Maximum zoom' "$ZOOMCTL_MAX")" || return 1
   reset="$(zoomctl_prompt_value 'Reset zoom' "$ZOOMCTL_RESET")" || return 1
-  center_cursor="$(zoomctl_prompt_value 'Center cursor after zoom? 0 or 1' "$ZOOMCTL_CENTER_CURSOR")" || return 1
+  center_cursor="$(zoomctl_prompt_value 'Center cursor after zoom? on/off' "$ZOOMCTL_CENTER_CURSOR")" || return 1
 
   ZOOMCTL_STEP="$step"
   ZOOMCTL_MIN="$minimum"
   ZOOMCTL_MAX="$maximum"
   ZOOMCTL_RESET="$reset"
-  ZOOMCTL_CENTER_CURSOR="$center_cursor"
+  ZOOMCTL_CENTER_CURSOR="$(zoomctl_normalize_bool "$center_cursor")"
   zoomctl_config_validate
   zoomctl_write_user_config
 }
@@ -297,9 +379,14 @@ Commands:
   reset         hard reset to the configured reset value
   status        print the active zoom state
   config        print the active configuration
+  set           set and save a single setting, e.g. `zoomctl set step 0.25`
+  get           print the active value of a single setting, e.g. `zoomctl get max`
+  configure     interactively prompt for every setting (menu-driven)
   edit-config   open the user config in $EDITOR
   uninstall     remove the Arch package with a privilege helper
   help          show this help
+
+Run `zoomctl set` with no arguments for the list of setting keys.
 EOF
 }
 
@@ -333,6 +420,15 @@ main() {
       ;;
     config|show-config)
       zoomctl_command_show_config
+      ;;
+    set)
+      zoomctl_command_set "${2:-}" "${3:-}"
+      ;;
+    get)
+      zoomctl_command_get "${2:-}"
+      ;;
+    configure)
+      zoomctl_command_configure
       ;;
     edit-config)
       zoomctl_command_edit_config
