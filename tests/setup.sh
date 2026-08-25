@@ -62,4 +62,20 @@ export ZOOMCTL_TARGET_HOME="$fresh_home"
 zoomctl_install_hyprland_include >/dev/null
 assert_contains "$fresh_home/.config/hypr/hyprland.conf" 'source = /usr/share/hyprland-zoom/hyprland-bindings.conf' 'fresh config created with legacy include'
 
+# --- File without trailing newline: include must not be glued to last line ---
+nolf_home="$(mktemp -d)"
+trap 'rm -rf "$nolf_home"' EXIT
+mkdir -p "$nolf_home/.config/hypr"
+printf -- '-- last line without newline' > "$nolf_home/.config/hypr/hyprland.lua"
+
+export ZOOMCTL_TARGET_HOME="$nolf_home"
+zoomctl_install_hyprland_include >/dev/null
+assert_contains "$nolf_home/.config/hypr/hyprland.lua" 'dofile("/usr/share/hyprland-zoom/hyprland-bindings.lua")' 'lua include added to newline-less file'
+[ "$(tail -c 1 "$nolf_home/.config/hypr/hyprland.lua" | wc -l)" -eq 1 ] || fail 'file must end with a newline after appending'
+[ "$(grep -c 'last line without newline' "$nolf_home/.config/hypr/hyprland.lua")" -eq 1 ] || fail 'last line corrupted'
+
+# --- Upgrade path: second install run stays idempotent ---
+zoomctl_install_hyprland_include >/dev/null
+[ "$(grep -c 'hyprland-bindings.lua' "$nolf_home/.config/hypr/hyprland.lua")" -eq 1 ] || fail 'lua include duplicated on upgrade'
+
 printf 'setup tests passed\n'

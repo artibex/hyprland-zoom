@@ -71,8 +71,8 @@ zoomctl_config_load_file() {
 }
 
 zoomctl_config_validate() {
-  if ! zoomctl_is_float "$ZOOMCTL_STEP"; then
-    printf 'zoomctl: invalid ZOOM_STEP value, using 0.10\n' >&2
+  if ! zoomctl_is_float "$ZOOMCTL_STEP" || ! zoomctl_float_gt "$ZOOMCTL_STEP" '0'; then
+    printf 'zoomctl: invalid ZOOM_STEP value (must be a number > 0), using 0.10\n' >&2
     ZOOMCTL_STEP='0.10'
   fi
 
@@ -105,6 +105,18 @@ zoomctl_config_validate() {
     printf 'zoomctl: ZOOM_MIN is greater than ZOOM_MAX, using defaults\n' >&2
     ZOOMCTL_MIN='1.00'
     ZOOMCTL_MAX='10.00'
+  fi
+
+  # ZOOM_RESET is applied verbatim (reset/toggle bypass the clamp), so keep it
+  # inside [MIN, MAX] — otherwise a stray config value could push Hyprland's
+  # zoom_factor out of the configured bounds.
+  if zoomctl_float_gt "$ZOOMCTL_RESET" "$ZOOMCTL_MAX"; then
+    printf 'zoomctl: ZOOM_RESET above ZOOM_MAX, clamping to %s\n' "$ZOOMCTL_MAX" >&2
+    ZOOMCTL_RESET="$ZOOMCTL_MAX"
+  fi
+  if zoomctl_float_gt "$ZOOMCTL_MIN" "$ZOOMCTL_RESET"; then
+    printf 'zoomctl: ZOOM_RESET below ZOOM_MIN, clamping to %s\n' "$ZOOMCTL_MIN" >&2
+    ZOOMCTL_RESET="$ZOOMCTL_MIN"
   fi
 }
 
@@ -166,7 +178,10 @@ zoomctl_config_validate_value() {
   local value="$2"
 
   case "$key" in
-    ZOOM_STEP|ZOOM_MIN|ZOOM_MAX|ZOOM_RESET)
+    ZOOM_STEP)
+      zoomctl_is_float "$value" && zoomctl_float_gt "$value" '0'
+      ;;
+    ZOOM_MIN|ZOOM_MAX|ZOOM_RESET)
       zoomctl_is_float "$value"
       ;;
     ZOOM_CENTER_CURSOR)

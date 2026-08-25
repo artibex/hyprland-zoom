@@ -132,6 +132,11 @@ zoomctl_ensure_include() {
 
   temporary_file="$(mktemp)"
   cat "$config_file" > "$temporary_file"
+  # Never glue the include onto the last line of a file that lacks a trailing
+  # newline — that would turn a valid config file into a syntax error.
+  if [ -s "$temporary_file" ] && [ "$(tail -c 1 "$temporary_file" | wc -l)" -eq 0 ]; then
+    printf '\n' >> "$temporary_file"
+  fi
   printf '%s\n' "$include_line" >> "$temporary_file"
   chmod "$original_mode" "$temporary_file"
   mv "$temporary_file" "$config_file"

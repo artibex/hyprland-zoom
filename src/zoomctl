@@ -275,6 +275,12 @@ zoomctl_command_set() {
         return 1
       fi
       ;;
+    ZOOM_RESET)
+      if zoomctl_float_gt "$applied_value" "$ZOOMCTL_MAX" || zoomctl_float_gt "$ZOOMCTL_MIN" "$applied_value"; then
+        printf 'zoomctl: reset (%s) must be within min (%s) .. max (%s)\n' "$applied_value" "$ZOOMCTL_MIN" "$ZOOMCTL_MAX" >&2
+        return 1
+      fi
+      ;;
   esac
 
   zoomctl_config_apply_setting "$canonical_key" "$applied_value"

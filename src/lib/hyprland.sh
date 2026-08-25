@@ -34,8 +34,11 @@ zoomctl_hyprland_set_zoom() {
   # Hyprland 0.55+ moved to a Lua-based config parser: `hyprctl keyword` is
   # rejected for these options ("keyword can't work with non-legacy parsers.
   # Use eval.") and silently does nothing, so set the option through the Lua
-  # config API instead.
-  hyprctl eval "hl.config({ cursor = { zoom_factor = $zoom_value } })" >/dev/null
+  # config API. On older Hyprland `hyprctl eval` does not exist yet, so fall
+  # back to `hyprctl keyword` there. The exit code of the last command
+  # executed propagates, so a genuine failure is never masked.
+  hyprctl eval "hl.config({ cursor = { zoom_factor = $zoom_value } })" >/dev/null 2>&1 \
+    || hyprctl keyword cursor:zoom_factor "$zoom_value" >/dev/null
 }
 
 zoomctl_hyprland_active_monitor_geometry() {
@@ -87,5 +90,10 @@ EOF
   target_x="$(awk -v monitor_x="$monitor_x" -v monitor_width="$monitor_width" 'BEGIN { printf "%.0f\n", monitor_x + (monitor_width / 2) }')"
   target_y="$(awk -v monitor_y="$monitor_y" -v monitor_height="$monitor_height" 'BEGIN { printf "%.0f\n", monitor_y + (monitor_height / 2) }')"
 
-  hyprctl dispatch movecursor "$target_x" "$target_y" >/dev/null 2>&1 || true
+  # Hyprland 0.55+ (Lua config parser) rejects `hyprctl dispatch movecursor`
+  # ("dispatch in lua is a shorthand for hl.dispatch(...)"), so use the Lua
+  # dispatcher; fall back to the legacy dispatch on older Hyprland. Best-effort
+  # by design: a failed recentre must never fail the zoom action itself.
+  hyprctl eval "hl.dispatch(hl.dsp.cursor.move({ x = $target_x, y = $target_y }))" >/dev/null 2>&1 \
+    || hyprctl dispatch movecursor "$target_x" "$target_y" >/dev/null 2>&1 || true
 }
