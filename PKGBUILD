@@ -1,6 +1,6 @@
 pkgname=hyprland-zoom
 pkgver=0.1.0
-pkgrel=7
+pkgrel=8
 pkgdesc='Shell-based zoom controller and bindings for Hyprland'
 arch=('any')
 url='https://github.com/artibex/hyprland-zoom'
@@ -22,6 +22,7 @@ package() {
 
   install -Dm644 "$startdir/config/defaults.conf" "$pkgdir/etc/zoomctl.conf"
   install -Dm644 "$startdir/config/hyprland-bindings.conf" "$pkgdir/usr/share/hyprland-zoom/hyprland-bindings.conf"
+  install -Dm644 "$startdir/config/hyprland-bindings.lua" "$pkgdir/usr/share/hyprland-zoom/hyprland-bindings.lua"
 
   install -Dm644 "$startdir/README.md" "$pkgdir/usr/share/doc/hyprland-zoom/README.md"
   install -Dm644 "$startdir/Agent.md" "$pkgdir/usr/share/doc/hyprland-zoom/Agent.md"
