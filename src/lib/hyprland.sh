@@ -30,66 +30,22 @@ zoomctl_hyprland_set_zoom() {
 
   zoomctl_hyprland_require || return 1
   zoom_value="$(zoomctl_format_float "$1")"
-  hyprctl keyword cursor:zoom_factor "$zoom_value" >/dev/null
-}
 
-zoomctl_hyprland_cursor_position() {
-  local raw_output
-  local normalized_output
-
-  zoomctl_hyprland_require || return 1
-  raw_output="$(hyprctl cursorpos 2>/dev/null || true)"
-  normalized_output="$(printf '%s\n' "$raw_output" | sed 's/[^0-9.+-]/ /g')"
-
-  set -- $normalized_output
-  [ $# -ge 2 ] || return 1
-
-  printf '%s %s\n' "$1" "$2"
+  # Hyprland 0.55+ moved to a Lua-based config parser: `hyprctl keyword` is
+  # rejected for these options ("keyword can't work with non-legacy parsers.
+  # Use eval.") and silently does nothing, so set the option through the Lua
+  # config API instead.
+  hyprctl eval "hl.config({ cursor = { zoom_factor = $zoom_value } })" >/dev/null
 }
 
 zoomctl_hyprland_active_monitor_geometry() {
   zoomctl_hyprland_require || return 1
 
   hyprctl monitors 2>/dev/null | awk '
-    function flush_block() {
-      if (focused && geometry != "") {
-        print geometry
-        exit
-      }
-      focused = 0
-      geometry = ""
-      monitor_open = 0
-    }
-
-    /^Monitor / {
-      if (monitor_open) {
-        flush_block()
-      }
-      monitor_open = 1
-      focused = 0
-      geometry = ""
-      next
-    }
-
-    monitor_open && /focused:[[:space:]]*yes/ {
-      focused = 1
-      next
-    }
-
-    monitor_open && / at / {
-      geometry = $0
-      next
-    }
-
-    NF == 0 {
-      flush_block()
-    }
-
-    END {
-      if (focused && geometry != "") {
-        print geometry
-      }
-    }
+    /^Monitor / { geometry = "" }
+    / at / && geometry == "" { geometry = $0 }
+    /focused:[[:space:]]*yes/ { if (geometry != "") answer = geometry }
+    END { if (answer != "") print answer }
   '
 }
 
@@ -105,37 +61,31 @@ zoomctl_hyprland_parse_geometry() {
   printf '%s %s\n' "$dimensions" "$coordinates"
 }
 
+# Pins the mouse cursor to the middle of the active monitor. Hyprland's
+# cursor zoom always magnifies the area around the cursor, so keeping the
+# cursor at the screen center keeps the magnified view centered too.
 zoomctl_hyprland_center_cursor() {
-  local cursor_position
   local geometry
   local parsed_geometry
-  local cursor_x
-  local cursor_y
   local monitor_width
   local monitor_height
   local monitor_x
   local monitor_y
   local target_x
   local target_y
-  local delta_x
-  local delta_y
 
   [ "${ZOOMCTL_CENTER_CURSOR:-0}" = '1' ] || return 0
 
-  cursor_position="$(zoomctl_hyprland_cursor_position)" || return 0
   geometry="$(zoomctl_hyprland_active_monitor_geometry)" || return 0
   parsed_geometry="$(zoomctl_hyprland_parse_geometry "$geometry")" || return 0
-
-  read -r cursor_x cursor_y <<EOF
-$cursor_position
-EOF
 
   read -r monitor_width monitor_height monitor_x monitor_y <<EOF
 $parsed_geometry
 EOF
 
-  delta_x="$(awk -v monitor_x="$monitor_x" -v monitor_width="$monitor_width" -v cursor_x="$cursor_x" 'BEGIN { printf "%.0f\n", (monitor_x + (monitor_width / 2)) - cursor_x }')"
-  delta_y="$(awk -v monitor_y="$monitor_y" -v monitor_height="$monitor_height" -v cursor_y="$cursor_y" 'BEGIN { printf "%.0f\n", (monitor_y + (monitor_height / 2)) - cursor_y }')"
+  # hyprctl dispatch movecursor takes an ABSOLUTE position, not a delta.
+  target_x="$(awk -v monitor_x="$monitor_x" -v monitor_width="$monitor_width" 'BEGIN { printf "%.0f\n", monitor_x + (monitor_width / 2) }')"
+  target_y="$(awk -v monitor_y="$monitor_y" -v monitor_height="$monitor_height" 'BEGIN { printf "%.0f\n", monitor_y + (monitor_height / 2) }')"
 
-  hyprctl dispatch movecursor "$delta_x" "$delta_y" >/dev/null 2>&1 || true
+  hyprctl dispatch movecursor "$target_x" "$target_y" >/dev/null 2>&1 || true
 }

@@ -1,6 +1,6 @@
 pkgname=hyprland-zoom
 pkgver=0.1.0
-pkgrel=4
+pkgrel=7
 pkgdesc='Shell-based zoom controller and bindings for Hyprland'
 arch=('any')
 url='https://github.com/artibex/hyprland-zoom'
