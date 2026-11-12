@@ -1,4 +1,4 @@
-"""A small YAML-subset parser for compose files and .gitlab-ci.yml (stdlib only).
+"""A small YAML-subset parser for the GitHub Actions workflows (stdlib only).
 
 Supported: block mappings and sequences, `- key: value` items, quoted and
 plain scalars, flow sequences, block scalars (| and >), anchors and aliases

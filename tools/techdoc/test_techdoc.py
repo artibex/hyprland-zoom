@@ -1,4 +1,4 @@
-"""Unit tests of the techdoc tool (stdlib unittest, no network, no docker).
+"""Unit tests of the techdoc tool (stdlib unittest, no network).
 
 Run: `python3 -m unittest` inside tools/techdoc, or from the repository root
 `python3 -m unittest discover -s tools/techdoc -p 'test_techdoc.py' -v`.
