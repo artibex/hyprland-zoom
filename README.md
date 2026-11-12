@@ -1,8 +1,8 @@
-[Technical documentation](https://artibex.github.io/hyprland-zoom/)
+> 📘 **Technical documentation (GitHub Pages):** [artibex.github.io/hyprland-zoom](https://artibex.github.io/hyprland-zoom/)
 
 # hyprland-zoom
 
-Accessibility zoom for [Hyprland](https://hyprland.org), modelled on the screen zoom of macOS:
+Accessibility zoom for [Hyprland](https://hyprland.org), modeled on the screen zoom of macOS:
 hold a key and scroll to magnify the screen, keep the pointer where you want it in the zoomed
 view, switch on a color filter, and try every setting out live in a settings window.
 
@@ -13,15 +13,14 @@ view, switch on a color filter, and try every setting out live in a settings win
 - **Color filters.** Invert, dark-mode style *smart invert*, grayscale, high contrast and
   color-blindness transforms, each with strength, contrast, brightness and saturation.
 - **Settings app with a *Try it* bar.** Change a value, feel the difference at once.
-- **Made for Arch and Omarchy.** Installs as a package, avoids Omarchy's key bindings, and
+- **Made for Arch and Omarchy.** Installs as a package, works alongside Omarchy's key bindings, and
   keeps your zoom when Omarchy reloads the configuration.
 
-<!-- Screenshots (to be added): -->
-<!-- 1. Settings window, Zoom page (light and dark) -->
-<!-- 2. Settings window, Pointer tracking page with the margin slider -->
-<!-- 3. Settings window, Color filters page while a preview runs (Keep / Revert) -->
-<!-- 4. Desktop zoomed to 3x, before and after smart invert -->
-<!-- 5. Shortcuts page with the keycap strip -->
+| Zoom | Pointer tracking |
+|---|---|
+| ![Zoom settings](docs/screenshots/settings-zoom.png) | ![Pointer tracking settings](docs/screenshots/settings-tracking.png) |
+| **Color filters** | **Shortcuts** |
+| ![Color filter settings](docs/screenshots/settings-filter.png) | ![Shortcut settings](docs/screenshots/settings-shortcuts.png) |
 
 ## Requirements
 
@@ -36,8 +35,8 @@ view, switch on a color filter, and try every setting out live in a settings win
 
 ## Install
 
-**From a release** (a built package is attached to every
-[release](https://github.com/artibex/hyprland-zoom/releases); `sha256sums` is next to it):
+**From a release** (once a version is tagged, the built package is attached to its
+[release](https://github.com/artibex/hyprland-zoom/releases) together with `sha256sums`):
 
 ```bash
 sudo pacman -U hyprland-zoom-0.2.0-1-any.pkg.tar.zst
@@ -123,7 +122,7 @@ afterwards. If you use the plugin, run `hyprpm update && hyprpm reload` after ev
 update.
 
 ```bash
-sudo pacman -Rns hyprland-zoom     # or: zoomctl uninstall
+sudo pacman -Rs hyprland-zoom      # or: zoomctl uninstall
 ```
 
 The hook removes the lines it added to your Hyprland config (after saving a backup). Your own

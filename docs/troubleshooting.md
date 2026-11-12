@@ -98,7 +98,7 @@ on the same key combination, including your own.
 
 ## Uninstalling
 
-`sudo pacman -Rns hyprland-zoom` (or `zoomctl uninstall`) removes the package and the lines
+`sudo pacman -Rs hyprland-zoom` (or `zoomctl uninstall`) removes the package and the lines
 that `zoomctl setup` added to `hyprland.lua` / `hyprland.conf`, after saving a backup next to
 the file. Your own settings in `~/.config/zoomctl/zoom.conf` stay; delete the file if you do
 not need it.
