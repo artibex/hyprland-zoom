@@ -20,7 +20,10 @@ from .tryit import TryItController  # noqa: E402
 from .tryit_bar import TryItBar  # noqa: E402
 
 # Below this width the page switcher moves from the header to a bar at the bottom.
-NARROW_WIDTH_CONDITION = "max-width: 640sp"
+NARROW_WIDTH_CONDITION = "max-width: 860sp"
+# Default size: wide enough for all five page titles, short enough for a 768 px screen.
+DEFAULT_WIDTH = 980
+DEFAULT_HEIGHT = 700
 TOAST_SECONDS = 4
 
 
@@ -47,8 +50,8 @@ class SettingsWindow(Adw.ApplicationWindow):
         Returns:
             None.
         """
-        super().__init__(application=application, title=APP_NAME, default_width=900,
-                         default_height=780)
+        super().__init__(application=application, title=APP_NAME, default_width=DEFAULT_WIDTH,
+                         default_height=DEFAULT_HEIGHT)
         self.controller = controller
         self.session = session
         # Configurable so tests need not wait a full second.
