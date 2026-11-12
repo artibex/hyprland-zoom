@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- hyprland-zoom symbolic icon: filled shapes only, so GTK can recolour it to the text colour. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- Lens ring: outer and inner circle combined with the even-odd rule. -->
+  <path fill="#222222" fill-rule="evenodd"
+        d="M6.5 1.5a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 1.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7z"/>
+  <!-- Handle towards the lower right. -->
+  <path fill="#222222" d="M9.8 11l1.2-1.2 3.8 3.8-1.2 1.2z"/>
+  <!-- Plus sign inside the lens. -->
+  <rect fill="#222222" x="5.9" y="4.5" width="1.2" height="4"/>
+  <rect fill="#222222" x="4.5" y="5.9" width="4" height="1.2"/>
+</svg>

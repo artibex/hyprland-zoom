@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- hyprland-zoom settings icon: a magnifying glass with a plus on a blue tile. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#62a0ea"/>
+      <stop offset="1" stop-color="#1a5fb4"/>
+    </linearGradient>
+  </defs>
+  <!-- Tile: rounded square following the GNOME app icon grid (112 px inside 128 px). -->
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#tile)"/>
+  <!-- Lens: translucent disc with a white rim. -->
+  <circle cx="56" cy="56" r="28" fill="#ffffff" fill-opacity="0.2" stroke="#ffffff" stroke-width="8"/>
+  <!-- Handle: thick rounded stroke towards the lower right. -->
+  <line x1="77" y1="77" x2="100" y2="100" stroke="#ffffff" stroke-width="11" stroke-linecap="round"/>
+  <!-- Plus: the zoom-in sign inside the lens. -->
+  <line x1="45" y1="56" x2="67" y2="56" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/>
+  <line x1="56" y1="45" x2="56" y2="67" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/>
+</svg>

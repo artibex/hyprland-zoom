@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Zoom Settings
+GenericName=Screen Magnifier Settings
+Comment=Configure and try out the hyprland-zoom screen magnifier
+Exec=hyprland-zoom-settings
+Icon=io.github.artibex.HyprlandZoom
+Terminal=false
+StartupNotify=true
+Categories=Settings;GTK;Accessibility;
+Keywords=zoom;magnifier;accessibility;contrast;invert;colour;color;filter;hyprland;
