@@ -167,11 +167,13 @@ void testRigidNeverPans() {
     // Anchor the camera in rigid mode.
     CameraState state;
     CameraInput input = inputAt({300.0, 200.0}, 0.30);
-    input.rigid       = true;
+    // Rigid mode is what `cursor:zoom_rigid = true` selects.
+    input.rigid = true;
     updateCamera(state, input);
     // Moving far away must not move the camera in rigid mode.
     input.pointer = {1100.0, 600.0};
     updateCamera(state, input);
+    // The camera is still where the anchor frame put it.
     checkNear(state.camera.x, 150.0, "camera.x");
     checkNear(state.camera.y, 100.0, "camera.y");
 }
@@ -185,6 +187,7 @@ void testAntiJerkAfterZoomStep() {
     CameraInput zoomed = inputAt({1275.0, 715.0}, 0.05);
     zoomed.zoom        = 4.0F;
     updateCamera(state, zoomed);
+    // The anti-jerk rule switched the padded box off.
     check(!state.padCamEdges, "padded box must be disabled after a stranding zoom step");
     const Box before = state.camera;
     // The pointer sits outside the padded box but inside the camera: no pan, no jerk.

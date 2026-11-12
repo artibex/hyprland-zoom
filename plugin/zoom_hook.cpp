@@ -117,8 +117,9 @@ void updateAndProject(CMonitorZoomController& controller, CBox& result, const Fr
     // Persist the result so the next frame (and the original code, if re-enabled) continue here.
     writeCameraState(state, controller);
     // Project the camera like Hyprland does; its caller applies the final monitor clamp.
-    const Box box = cameraToMonitorBox(state, input.monitorSize, input.zoom, frame.monitor->m_scale);
-    result        = CBox(box.x, box.y, box.w, box.h);
+    const Box box =
+        cameraToMonitorBox(state, input.monitorSize, input.zoom, frame.monitor->m_scale);
+    result = CBox(box.x, box.y, box.w, box.h);
 }
 
 /// Tells whether the hook must hand the frame to Hyprland's own code.
@@ -139,9 +140,11 @@ void hookedZoomWithDetachedCamera(CMonitorZoomController* controller,
     // 0.57 keeps the per-frame data in the context that is passed in.
     const FrameView frame{context.m_data.pMonitor, context.m_data.mouseZoomFactor};
     if (useNativeCamera(frame)) {
+        // Switched off: Hyprland's own code draws this frame.
         originalFunction()(controller, context, result);
         return;
     }
+    // Otherwise the adjustable-margin camera does.
     updateAndProject(*controller, result, frame);
 }
 #else
@@ -154,9 +157,11 @@ void hookedZoomWithDetachedCamera(CMonitorZoomController* controller, CBox& resu
     // 0.56 reads the zoom factor from the renderer's own data, as Hyprland's function does.
     const FrameView frame{renderData.pMonitor, g_pHyprRenderer->m_renderData.mouseZoomFactor};
     if (useNativeCamera(frame)) {
+        // Switched off: Hyprland's own code draws this frame.
         originalFunction()(controller, result, renderData);
         return;
     }
+    // Otherwise the adjustable-margin camera does.
     updateAndProject(*controller, result, frame);
 }
 #endif

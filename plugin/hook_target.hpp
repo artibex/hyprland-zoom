@@ -60,8 +60,8 @@ std::optional<void*> selectHookTarget(const std::vector<Match>& matches, ApiGene
     // The substring search is loose; the whole signature proves it is the intended function.
     if (matches.front().demangled != expectedSignature(generation)) {
         // Name the offender so the notification tells the user what changed in Hyprland.
-        error = "symbol '" + matches.front().demangled + "' is not " +
-                expectedSignature(generation);
+        error =
+            "symbol '" + matches.front().demangled + "' is not " + expectedSignature(generation);
         return std::nullopt;
     }
     // Exactly one verified match: this is the address to hook.

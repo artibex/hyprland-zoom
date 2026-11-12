@@ -43,8 +43,8 @@
 namespace hyprzoom {
 
 /// The generation the sources were selected for by the header layout above.
-constexpr ApiGeneration kBuiltFor = HYPRZOOM_API_GENERATION == 2 ? ApiGeneration::Hyprland057
-                                                                 : ApiGeneration::Hyprland056;
+constexpr ApiGeneration kBuiltFor =
+    HYPRZOOM_API_GENERATION == 2 ? ApiGeneration::Hyprland057 : ApiGeneration::Hyprland056;
 
 } // namespace hyprzoom
 

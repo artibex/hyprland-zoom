@@ -103,8 +103,8 @@ inline void reanchorCamera(CameraState& state, const CameraInput& input, double 
     if (state.resetCameraState) {
         state.resetCameraState = false;
         // The whole monitor is the camera of an unzoomed view, and level 1.0 its zoom.
-        state.camera           = Box{0.0, 0.0, input.monitorSize.x, input.monitorSize.y};
-        state.lastZoomLevel    = 1.0F;
+        state.camera        = Box{0.0, 0.0, input.monitorSize.x, input.monitorSize.y};
+        state.lastZoomLevel = 1.0F;
     }
     // The previous camera is the frame of reference for the pointer's world position.
     const Box oldCamera = state.camera;

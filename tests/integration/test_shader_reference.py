@@ -63,6 +63,7 @@ class SmartInvertContrastTest(unittest.TestCase):
         """Every pair keeps its contrast ratio (up to 1 %), not only black and white."""
         generator = random.Random(20260807)
         for _ in range(500):
+            # A random pair of colours and its contrast before and after the filter.
             first = tuple(generator.random() for _ in range(3))
             second = tuple(generator.random() for _ in range(3))
             before = shader_reference.contrast_ratio(first, second)
@@ -73,6 +74,7 @@ class SmartInvertContrastTest(unittest.TestCase):
     def test_output_stays_inside_the_gamut(self):
         """No channel leaves 0..1, so nothing relies on clamping that would change contrast."""
         generator = random.Random(7)
+        # Random colours, every output channel must stay in range.
         for _ in range(500):
             colour = tuple(generator.random() for _ in range(3))
             for channel in shader_reference.smart_invert(colour):
@@ -81,6 +83,7 @@ class SmartInvertContrastTest(unittest.TestCase):
     def test_hue_direction_is_kept(self):
         """A pure blue stays blue-dominant after the filter (no flip to a complement)."""
         red, green, blue = shader_reference.smart_invert(LINK_BLUE)
+        # Blue must still be the strongest channel.
         self.assertGreater(blue, red)
         self.assertGreater(blue, green)
 

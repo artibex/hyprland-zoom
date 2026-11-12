@@ -41,7 +41,8 @@ void testAcceptsTheVerifiedSignature() {
     for (const auto generation : {ApiGeneration::Hyprland056, ApiGeneration::Hyprland057}) {
         std::string error;
         const char* signature = hyprzoom::expectedSignature(generation);
-        const auto target     = select({{&g_marker, signature}}, generation, error);
+        // One fake match carrying exactly that signature.
+        const auto target = select({{&g_marker, signature}}, generation, error);
         check(target.has_value(), std::string{"must accept "} + signature);
         // The address must come back unchanged, it is what gets patched.
         check(target.value_or(nullptr) == &g_marker, "must return its address");
@@ -63,9 +64,11 @@ void testRefusesSeveralMatches() {
     // Two candidates are ambiguous, whatever their signature.
     std::string error;
     const char* signature = hyprzoom::kSignature056;
-    const auto target     = select({{&g_marker, signature}, {&g_marker, signature}},
-                                   ApiGeneration::Hyprland056, error);
+    // The same legitimate match twice.
+    const auto target =
+        select({{&g_marker, signature}, {&g_marker, signature}}, ApiGeneration::Hyprland056, error);
     check(!target.has_value(), "must refuse ambiguity");
+    // The message names how many candidates were found.
     check(error.find("found 2") != std::string::npos, "message has count");
 }
 
@@ -105,9 +108,10 @@ void testApiVersionGuard() {
     // The announced versions of the two supported generations.
     check(apiVersionMatches(ApiGeneration::Hyprland056, "0.1"), "0.56 expects API 0.1");
     check(apiVersionMatches(ApiGeneration::Hyprland057, "0.2"), "0.57 expects API 0.2");
-    // Mixed-up or unknown versions must stop the build.
+    // Mixed-up versions must stop the build.
     check(!apiVersionMatches(ApiGeneration::Hyprland056, "0.2"), "0.56 sources reject API 0.2");
     check(!apiVersionMatches(ApiGeneration::Hyprland057, "0.1"), "0.57 sources reject API 0.1");
+    // Unknown versions as well: a future API may change the signature again.
     check(!apiVersionMatches(ApiGeneration::Hyprland057, "0.3"), "a future API is rejected");
     check(!apiVersionMatches(ApiGeneration::Hyprland056, ""), "an empty version is rejected");
 }

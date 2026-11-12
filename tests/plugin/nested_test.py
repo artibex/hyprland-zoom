@@ -24,6 +24,8 @@ Exit:  0 all checks passed; 1 a check failed; 77 prerequisites missing (skipped)
 import argparse
 import json
 import os
+
+# A frozen dataclass describes one camera experiment.
 import shutil
 from dataclasses import dataclass
 
@@ -76,8 +78,10 @@ hl.animation({{ leaf = "zoomFactor", enabled = true, speed = 3, bezier = "defaul
 class Scene:
     """One camera experiment: zoom level, zoom-in point, pointer path and output scale."""
 
+    # Zoom level and the pointer position where the zoom-in happens.
     zoom: float
     anchor: tuple
+    # Pointer positions visited after the zoom-in, and the output scale of the monitor.
     path: tuple
     scale: float = 1.0
 
@@ -390,9 +394,11 @@ class LiveTest:
         # Native margin first: pan right/down so the pointer rests on the 0.9 box rim.
         nested.lua("hl.config({plugin={hyprzoom={edge_margin=0.05}}})")
         nested.reset_camera_state()
+        # Zoom in at the centre and wait for the animation to settle.
         nested.move_pointer(*CENTRE.anchor)
         nested.lua(f"hl.config({{cursor={{zoom_factor={CENTRE.zoom}}}}})")
         time.sleep(ZOOM_SETTLE_SECONDS)
+        # Pan into the border zone of the NEXT margin and measure the camera before the change.
         nested.move_pointer(1000, 560)
         before = nested.camera(CENTRE.zoom)
         # The new margin applies on the next frame; a one pixel pointer move forces that frame.
@@ -434,6 +440,7 @@ class LiveTest:
         if abs(self.monitor_scale() - SCALE) > 0.01:
             print("SKIP  output scale 1.5: the headless output did not accept it", flush=True)
             return
+        # One native and one wide margin on the scaled output.
         for margin in (0.05, 0.25):
             nested.lua(f"hl.config({{plugin={{hyprzoom={{edge_margin={margin}}}}}}})")
             self.check_path(margin, f"output scale 1.5, margin {margin:.2f}", SCALED)
@@ -535,9 +542,11 @@ class LiveTest:
             # Cheap checks first, the destructive ones (unload, refusal) last.
             self.check_plugin_basics()
             self.check_margins()
+            # The scenarios that go beyond the centre anchor at zoom 2.
             self.check_zoom_levels()
             self.check_off_centre_anchor()
             self.check_margin_change_while_zoomed()
+            # Needs a HiDPI-capable headless output; it skips itself when refused.
             self.check_output_scale()
             self.check_native_fallbacks()
             # The plugin was unloaded above; this check loads it again like hyprpm does.

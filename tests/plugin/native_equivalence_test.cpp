@@ -1,14 +1,15 @@
 // native_equivalence_test.cpp — proves camera_math.hpp at margin 0.05 equals Hyprland's maths.
 //
-// `native056` and `native057` are transcriptions of `CMonitorZoomController::zoomWithDetachedCamera`
-// as it is in Hyprland v0.56.2 and v0.57.2 (src/output/MonitorZoomController.cpp), written on
-// hyprutils' real CBox. Comparing the two versions line by line showed that the camera maths is
-// identical; only how the function reaches the monitor, the zoom factor and the pointer differs
-// (0.56: SRenderData parameter + g_pHyprRenderer, 0.57: CRenderContext parameter). Each version
-// therefore has its own transcription with its own accessors, so a future change in either one
-// is a visible diff here. Random pointer/zoom sequences must give the same camera AND the same
-// projected monitor box (including the output scale) in the transcription and in the plugin's
-// maths; this catches slips that the hand-computed unit tests cannot.
+// `native056` and `native057` are transcriptions of
+// `CMonitorZoomController::zoomWithDetachedCamera` as it is in Hyprland v0.56.2 and v0.57.2
+// (src/output/MonitorZoomController.cpp), written on hyprutils' real CBox. Comparing the two
+// versions line by line showed that the camera maths is identical; only how the function reaches
+// the monitor, the zoom factor and the pointer differs (0.56: SRenderData parameter +
+// g_pHyprRenderer, 0.57: CRenderContext parameter). Each version therefore has its own
+// transcription with its own accessors, so a future change in either one is a visible diff here.
+// Random pointer/zoom sequences must give the same camera AND the same projected monitor box
+// (including the output scale) in the transcription and in the plugin's maths; this catches slips
+// that the hand-computed unit tests cannot.
 #include "../../plugin/camera_math.hpp"
 
 #include <hyprutils/math/Box.hpp>
@@ -63,22 +64,25 @@ CBox nativeBody(NativeState& state, const FakeMonitor& m, float ZOOM, const Vect
         // A pending reset restarts the camera from the whole monitor.
         if (state.resetCameraState) {
             state.resetCameraState = false;
-            state.camera           = CBox(0, 0, m.size.x, m.size.y);
-            state.lastZoomLevel    = 1.0f;
+            // The whole monitor is the camera of an unzoomed view, and level 1.0 its zoom.
+            state.camera        = CBox(0, 0, m.size.x, m.size.y);
+            state.lastZoomLevel = 1.0f;
         }
         const CBox old = state.camera;
 
         // Pointer position as a screen fraction, and the world point below it (float, as native).
-        const float mx          = MOUSE.x / m.size.x;
-        const float my          = MOUSE.y / m.size.y;
+        const float mx = MOUSE.x / m.size.x;
+        const float my = MOUSE.y / m.size.y;
+        // The world point under the pointer before the zoom change.
         const float mouseWorldX = old.x + (mx * old.w);
         const float mouseWorldY = old.y + (my * old.h);
 
         // New view size and the origin that keeps the world point under the pointer.
         const auto CAMERAW = monbox.w / ZOOM;
         const auto CAMERAH = monbox.h / ZOOM;
-        const float newX   = mouseWorldX - (mx * CAMERAW);
-        const float newY   = mouseWorldY - (my * CAMERAH);
+        // Top-left that keeps the world point under the same screen fraction.
+        const float newX = mouseWorldX - (mx * CAMERAW);
+        const float newY = mouseWorldY - (my * CAMERAH);
 
         // Anti-jerk: a zoom step that strands the pointer outside the 0.9 box disables padding.
         state.camera = CBox(newX, newY, CAMERAW, CAMERAH);
@@ -100,6 +104,7 @@ CBox nativeBody(NativeState& state, const FakeMonitor& m, float ZOOM, const Vect
             state.camera.x -= smallerbox.x - MOUSE.x;
         if (MOUSE.y < smallerbox.y)
             state.camera.y -= smallerbox.y - MOUSE.y;
+        // Bottom and right overshoots pan the other way.
         if (MOUSE.y > smallerbox.y + smallerbox.h)
             state.camera.y += MOUSE.y - (smallerbox.y + smallerbox.h);
         if (MOUSE.x > smallerbox.x + smallerbox.w)
@@ -167,6 +172,7 @@ double replaySession(Version version, const FakeMonitor& monitor, std::mt19937& 
                      int session) {
     std::uniform_real_distribution<double> unit(0.0, 1.0);
     const float zoomLevels[] = {1.5F, 2.0F, 3.0F, 5.0F};
+    // Both implementations start from the same fresh state.
     NativeState native;
     hyprzoom::CameraState ours;
     double worst = 0.0;
@@ -185,9 +191,11 @@ double replaySession(Version version, const FakeMonitor& monitor, std::mt19937& 
         hyprzoom::CameraInput input;
         input.pointer     = {pointer.x, pointer.y};
         input.monitorSize = {monitor.size.x, monitor.size.y};
-        input.zoom        = zoom;
-        input.edgeMargin  = hyprzoom::kNativeEdgeMargin;
-        input.rigid       = rigid;
+        // Zoom, native margin and rigid flag complete the frame input.
+        input.zoom       = zoom;
+        input.edgeMargin = hyprzoom::kNativeEdgeMargin;
+        input.rigid      = rigid;
+        // Advance the plugin's camera by one frame.
         hyprzoom::updateCamera(ours, input);
         // Both the camera and the projected box (which includes the output scale) must agree.
         worst = std::fmax(worst, boxDifference(native.camera, ours.camera));
@@ -207,8 +215,10 @@ int main() {
         {{1920.0, 1080.0}, 1.0F}, {{1280.0, 720.0}, 1.5F}, {{1280.0, 720.0}, 2.0F}};
     // A fixed seed makes failures reproducible.
     std::mt19937 random(12345);
+    // Running maximum of the differences and the number of frames compared.
     double worst = 0.0;
     int frames   = 0;
+    // Every version on every monitor, 70 random sessions of 60 frames each.
     for (const auto version : {Version::V056, Version::V057}) {
         for (const auto& monitor : monitors) {
             for (int session = 0; session < 70; ++session) {

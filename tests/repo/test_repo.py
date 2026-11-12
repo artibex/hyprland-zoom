@@ -108,11 +108,43 @@ class VersionTests(unittest.TestCase):
                                  capture_output=True, text=True, check=False)
         # Its answer is "zoomctl <version>"; keep only the version part.
         cli = first_match(r'^zoomctl (\S+)$', cli_run.stdout.strip())
-        # The engine and the plugin still spell the version in their own sources.
-        engine = first_match(r'^M\.VERSION = "([^"]+)"',
-                             read_text('src', 'lua', 'hyprland-zoom', 'api.lua'))
-        plugin = first_match(r'"artibex", "([^"]+)"', read_text('plugin', 'main.cpp'))
-        self.assertEqual((cli, engine, plugin), (self.version,) * 3)
+        # The plugin embeds the VERSION file through the Makefile (-DHYPRZOOM_VERSION); ask make
+        # what the build would embed, and check the built .so too when one exists.
+        make_run = subprocess.run(['make', '-s', '-C', os.path.join(REPO_ROOT, 'plugin'),
+                                   'print-version'], capture_output=True, text=True, check=False)
+        plugin = make_run.stdout.strip()
+        # The version marker is a C string in the binary (a short std::string would be inline code).
+        shared_object = os.path.join(REPO_ROOT, 'plugin', 'hyprzoom.so')
+        if os.path.exists(shared_object):
+            with open(shared_object, 'rb') as built:
+                self.assertIn(('hyprzoom-version=' + self.version).encode(), built.read())
+        # Both must equal the VERSION file.
+        self.assertEqual((cli, plugin), (self.version,) * 2)
+        # The engine reads <share>/VERSION at run time: run its own version function with the
+        # host lua against the checkout's VERSION file, exactly as the entry file does.
+        lua = shutil.which('lua')
+        # A path becomes a quoted Lua string literal (backslash and quote escaped).
+        lua_string = repr  # a Python string literal is also a valid Lua one for plain paths
+        # Without lua the engine part cannot run; the CLI and plugin checks above already did.
+        if lua is None:
+            self.skipTest('lua not installed: engine version not checked')
+        # A stub host that reads real files is all api.read_version needs.
+        script = ('package.path = %s .. package.path\n'
+                  'local api = require("hyprland-zoom.api")\n'
+                  'local host = { read_file = function(path)\n'
+                  '  local handle = io.open(path, "rb")\n'
+                  '  if not handle then return nil end\n'
+                  '  local text = handle:read("a")\n'
+                  '  handle:close()\n'
+                  '  return text\n'
+                  'end }\n'
+                  'io.write(api.read_version(host, %s))\n') % (
+                      lua_string(os.path.join(REPO_ROOT, 'src', 'lua', '?.lua') + ';'),
+                      lua_string(os.path.join(REPO_ROOT, 'VERSION')))
+        # The engine must report exactly the VERSION file's content.
+        engine_run = subprocess.run([lua, '-e', script], capture_output=True, text=True,
+                                    check=False)
+        self.assertEqual(engine_run.stdout.strip(), self.version, engine_run.stderr)
 
     def test_changelog_has_an_entry_for_the_version(self):
         """CHANGELOG.md has a section for the packaged version."""

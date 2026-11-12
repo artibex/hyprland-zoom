@@ -61,10 +61,13 @@ main() {
   [[ -n "$source_dir" && -f "$source_dir/src/plugins/PluginAPI.hpp" ]] \
     || skip "pass an extracted Hyprland source tree (needs src/plugins/PluginAPI.hpp)"
   command -v g++ > /dev/null 2>&1 || skip "g++ not found"
+  # The dependencies of Hyprland's public headers must have development files installed.
   pkg-config --exists hyprutils aquamarine hyprlang hyprcursor hyprgraphics \
     || skip "hyprutils/aquamarine/hyprlang/hyprcursor/hyprgraphics development files missing"
+  # The generated wayland protocol headers cannot come from a source tarball.
   [[ -d /usr/include/hyprland/protocols ]] || skip "installed hyprland protocol headers missing"
   overlay="$(mktemp -d "${TMPDIR:-/tmp}/hyprzoom-headers.XXXXXX")"
+  # The overlay is removed on every way out, also after a compile error.
   trap 'rm -rf "${overlay:-}"' EXIT
   stage_headers "$source_dir" "$overlay"
   # -isystem keeps the foreign headers' own warnings out of the plugin's -Wall -Wextra report.
