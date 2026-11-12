@@ -46,6 +46,8 @@ jobs:
     container:
       image: archlinux:latest
     steps:
+      # Deliberately minimal (no diffutils, python or compilers): zoomctl must work on a bare
+      # Arch base set, and the GUI/plugin suites must skip cleanly without their tools.
       - name: Install the test dependencies
         run: pacman -Syu --noconfirm --needed bash coreutils gawk git glslang grep lua make sed util-linux
       - uses: actions/checkout@v4
