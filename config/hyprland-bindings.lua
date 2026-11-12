@@ -7,6 +7,8 @@
 local DEFAULT_ENGINE_PATH = "/usr/share/hyprland-zoom/hyprland-zoom.lua"
 
 -- file_exists — test whether a file can be opened for reading.
+-- Notes:   Deliberately a private copy of the helper in src/lua/hyprland-zoom.lua: this shim must
+--          work standalone, before any engine module can be required (R-P1a-14).
 -- Args:    path string
 -- Returns: true when it can
 local function file_exists(path)

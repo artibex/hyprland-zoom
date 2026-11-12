@@ -71,13 +71,15 @@ local function list_dir(path)
   return names
 end
 
--- ensure_dir — create a private (0700) directory if it does not exist.
+-- ensure_dir — create a private (0700) directory, or tighten an existing one to 0700.
 -- Args:    path string
 -- Returns: true when the command succeeded
--- Notes:   Spawns `mkdir`; load time only.
+-- Notes:   Spawns `mkdir`/`chmod`; load time only.
 local function ensure_dir(path)
-  -- -p makes this idempotent; the mode applies to the final component only.
-  local created = os.execute("mkdir -p -m 0700 -- " .. M.shell_quote(path))
+  -- -p makes this idempotent; its mode applies only to a NEW final component, so chmod makes
+  -- an older, wider directory private too (R-P1a-13).
+  local quoted = M.shell_quote(path)
+  local created = os.execute("mkdir -p -m 0700 -- " .. quoted .. " && chmod 0700 -- " .. quoted)
   return created == true or created == 0
 end
 

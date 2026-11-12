@@ -34,6 +34,18 @@ T.case("ensure_dir creates a private directory and is idempotent", function()
   T.eq(mode, "700")
 end)
 
+T.case("ensure_dir tightens an existing wider directory to 0700", function()
+  -- mkdir -m only applies to a new directory; an old 0755 one must become private as well.
+  local host = new_host({})
+  local wide = WORK .. "/wide"
+  os.execute("mkdir -p -m 0755 '" .. wide .. "'")
+  T.truthy(host.ensure_dir(wide))
+  local pipe = assert(io.popen("stat -c %a '" .. wide .. "'"))
+  local mode = pipe:read("l")
+  pipe:close()
+  T.eq(mode, "700")
+end)
+
 T.case("write_file then read_file round-trips and leaves no temp file", function()
   -- Atomic write: only the final file remains.
   local host = new_host({})

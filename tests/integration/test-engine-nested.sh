@@ -3,7 +3,8 @@
 # Local only: a window of the nested compositor appears in the live session for ~1 minute.
 # Exit 0 = all checks passed or SKIP (no Wayland session / missing tools); 1 = a check failed.
 # Safety: every hyprctl/grim/client call goes through nested-hyprland.sh, which refuses to
-# fall back to the live session; the live session is never touched.
+# fall back to the live session; the live session is never touched. The plugin section builds
+# plugin/hyprzoom.so and loads it into the NESTED instance only (skipped without headers).
 set -euo pipefail
 
 # Locations: this directory, the repository root and the scratch directory of this test.
@@ -13,6 +14,9 @@ WORK="${NESTED_WORK_DIR:-$HERE/work/engine-nested}"
 # The nested-instance harness and the Python helpers.
 NESTED="$HERE/nested-hyprland.sh"
 PIXELS="$HERE/pixels.py"
+# The built plugin and the package version the engine must report.
+PLUGIN_SO="$REPO/plugin/hyprzoom.so"
+PACKAGE_VERSION="$(tr -d '[:space:]' < "$REPO/VERSION")"
 # Counters of the final summary.
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -200,7 +204,7 @@ check_engine_loaded() {
   local status
   status="$(engine 'return HyprZoom.status()')"
   expect_contains "engine reports engine=lua" "$status" "engine=lua"
-  expect_equal "engine version" "$(status_value version)" "0.2.0"
+  expect_equal "engine version is the VERSION file" "$(status_value version)" "$PACKAGE_VERSION"
   expect_equal "scroll_event_delay applied (E2)" "$(option_value binds:scroll_event_delay)" "0"
   expect_equal "unzoomed at start" "$(status_value zoom)" "1.00"
 }
@@ -217,7 +221,7 @@ check_binds() {
   expect_contains "bind scroll up zooms out" "$binds" "72 mouse_up hyprland-zoom: Zoom out"
   expect_contains "bind middle click toggles" "$binds" "72 mouse:274 hyprland-zoom: Toggle zoom"
   expect_contains "bind key I" "$binds" "72 I hyprland-zoom: Zoom in"
-  expect_contains "bind key C" "$binds" "72 C hyprland-zoom: Toggle colour filter"
+  expect_contains "bind key C" "$binds" "72 C hyprland-zoom: Toggle color filter"
   expect_contains "bind key Z" "$binds" "72 Z hyprland-zoom: Open settings"
   # Takeover (E11): the fake Omarchy binds on the same chords are gone; SUPER+CTRL = 68.
   expect_equal "only one bind on SUPER+ALT+mouse_up" \
@@ -373,8 +377,183 @@ check_only_when_zoomed() {
   engine 'return HyprZoom.zoom_in()' > /dev/null
   expect_contains "shader applied while zoomed" "$(option_value decoration:screen_shader)" ".frag"
   engine 'return HyprZoom.reset()' > /dev/null
-  expect_equal "shader removed after reset" "$(option_value decoration:screen_shader)" ""
+  # The release waits for the zoom-out animation, so poll instead of checking at once.
+  expect_command "shader removed after reset (once the animation ended)" wait_until 3 shader_is_unset
   engine 'return HyprZoom.preview_end()' > /dev/null
+}
+
+# config_errors — print the compositor's current config errors (empty when there are none).
+# Args:    none
+# Returns: 0 always; stdout: the error lines without blank lines
+# Globals: none
+config_errors() {
+  nested ctl configerrors | grep -v '^[[:space:]]*$' || true
+}
+
+# expect_no_config_errors — the red "config has errors" bar must stay away (R-P1a-01, R-P2-01).
+# Args:    $1 label
+# Returns: 0 always; prints PASS/FAIL (with the errors on failure)
+# Globals: writes PASS_COUNT, FAIL_COUNT
+expect_no_config_errors() {
+  expect_equal "$1: no config errors" "$(config_errors)" ""
+}
+
+# check_no_config_errors — load, reload, set and preview leave the config error list empty.
+# Args:    none
+# Returns: 0 always; prints results
+# Globals: reads WORK
+check_no_config_errors() {
+  local label="${1:-without the plugin}"
+  expect_no_config_errors "after load $label"
+  # A real Hyprland reload re-runs the whole config, which used to set the missing plugin keys.
+  nested ctl reload > /dev/null
+  wait_until 10 engine 'return HyprZoom.status()'
+  sleep 0.5
+  expect_no_config_errors "after reload $label"
+  engine 'return HyprZoom.reload()' > /dev/null
+  expect_no_config_errors "after HyprZoom.reload() $label"
+  engine "return HyprZoom.preview({ ZOOM_TRACKING = 'margin', ZOOM_EDGE_MARGIN = '0.20' })" \
+    > /dev/null
+  expect_no_config_errors "after preview $label"
+  engine 'return HyprZoom.preview_end()' > /dev/null
+  expect_no_config_errors "after preview_end $label"
+}
+
+# check_external_unbind — a bind another script removed must not crash the compositor (R-P1a-02).
+# Args:    none
+# Returns: 0 always; prints results
+# Globals: none
+check_external_unbind() {
+  # Unbinding one of the engine's chords expires its handle; Hyprland 0.56.2 segfaults when the
+  # engine later calls remove() on it, so the engine must check the handle first.
+  engine 'hl.unbind("SUPER + ALT + I") return "unbound"' > /dev/null
+  engine "return HyprZoom.preview({ BIND_KEY_IN = 'K' })" > /dev/null
+  expect_equal "compositor survives an external unbind plus a bind change" \
+    "$(nested ctl version > /dev/null 2>&1 && echo alive)" "alive"
+  expect_contains "the engine rebuilt its binds after the external unbind" \
+    "$(nested ctl -j binds | jq -r '.[] | "\(.modmask) \(.key)"')" "72 K"
+  engine 'return HyprZoom.preview_end()' > /dev/null
+  expect_equal "engine answers after preview_end" "$(status_value engine)" "lua"
+}
+
+# check_smart_invert_contrast — link-blue text keeps WCAG contrast on the filtered screen.
+# Args:    none
+# Returns: 0 always; prints results
+# Globals: reads WORK, PIXELS
+check_smart_invert_contrast() {
+  engine "return HyprZoom.filter('smart-invert')" > /dev/null
+  sleep 0.7
+  nested shot "$WORK/contrast.png"
+  expect_command "smart-invert keeps blue link text readable (contrast >= 4.5)" \
+    python3 "$PIXELS" contrast "$WORK/contrast.png"
+  engine "return HyprZoom.filter('off')" > /dev/null
+}
+
+# shader_is_set — test whether decoration:screen_shader currently holds a path.
+# Args:    none
+# Returns: 0 when a screen shader is set; 1 otherwise
+# Globals: none
+shader_is_set() {
+  [[ -n "$(option_value decoration:screen_shader)" ]]
+}
+
+# shader_is_unset — the opposite of shader_is_set (usable with wait_until).
+# Args:    none
+# Returns: 0 when no screen shader is set; 1 otherwise
+# Globals: none
+shader_is_unset() {
+  ! shader_is_set
+}
+
+# check_filter_held_during_zoom_out — FILTER_ONLY_WHEN_ZOOMED waits for the animation (R-P1a-12).
+# Args:    none
+# Returns: 0 always; prints results
+# Globals: none
+check_filter_held_during_zoom_out() {
+  local started elapsed_ms
+  # Speed 10 = a one second animation, long enough to observe from a shell.
+  engine "return HyprZoom.preview({ FILTER_ONLY_WHEN_ZOOMED = 'on', FILTER_ACTIVE = 'on', \
+ZOOM_ANIMATION_SPEED = '10.00' })" > /dev/null
+  engine 'return HyprZoom.zoom_in(5)' > /dev/null
+  expect_equal "filter applied while zoomed" "$(shader_is_set && echo set)" "set"
+  engine 'return HyprZoom.reset()' > /dev/null
+  started=$(date +%s%N)
+  expect_equal "filter still applied right after the zoom-out started" \
+    "$(shader_is_set && echo set)" "set"
+  wait_until 5 shader_is_unset
+  elapsed_ms=$(( ($(date +%s%N) - started) / 1000000 ))
+  expect_equal "filter released about when the 1 s animation ended (>= 700 ms)" \
+    "$(( elapsed_ms >= 700 ? 1 : 0 ))" "1"
+  expect_equal "filter is gone afterwards" "$(shader_is_set && echo set || echo none)" "none"
+  engine 'return HyprZoom.preview_end()' > /dev/null
+}
+
+# build_plugin — build plugin/hyprzoom.so for the plugin sections.
+# Args:    none
+# Returns: 0 when the plugin is built; 77 when the headers are missing (skip); other: failure
+# Globals: reads REPO, WORK
+build_plugin() {
+  mkdir -p "$WORK"
+  # The build log stays in the work directory; it is only shown when something went wrong.
+  bash "$REPO/tests/plugin/build.sh" > "$WORK/plugin-build.log" 2>&1
+}
+
+# plugin_state — print the plugin entry of the engine status.
+# Args:    none
+# Returns: 0 always; stdout: loaded or missing
+# Globals: none
+plugin_state() {
+  status_value plugin
+}
+
+# plugin_is_loaded — usable with wait_until: the engine sees the plugin.
+# Args:    none
+# Returns: 0 when status says plugin=loaded
+# Globals: none
+plugin_is_loaded() {
+  [[ "$(plugin_state)" == loaded ]]
+}
+
+# plugin_is_missing — usable with wait_until: the engine no longer sees the plugin.
+# Args:    none
+# Returns: 0 when status says plugin=missing
+# Globals: none
+plugin_is_missing() {
+  [[ "$(plugin_state)" == missing ]]
+}
+
+# check_plugin_lifecycle — engine first, plugin loaded later, plugin unloaded again (R-P1a-03).
+# Args:    none
+# Returns: 0 always; prints results
+# Globals: reads WORK, PLUGIN_SO
+check_plugin_lifecycle() {
+  # Margin mode with a visible margin; the engine is already running without the plugin.
+  printf 'ZOOM_ANIMATION_SPEED=0.10\nZOOM_TRACKING=margin\nZOOM_EDGE_MARGIN=0.30\n' \
+    > "$WORK/user.conf"
+  engine 'return HyprZoom.reload()' > /dev/null
+  expect_equal "margin falls back to edge before the plugin is loaded" \
+    "$(status_value tracking_effective)" "edge"
+  expect_no_config_errors "margin configured, plugin absent"
+  # No manual HyprZoom.reload(): Hyprland reloads the config after a plugin load and the engine
+  # re-applies (the plugin cannot do it itself, it is not listed yet while its init runs).
+  nested ctl plugin load "$PLUGIN_SO" > /dev/null
+  expect_command "engine sees the plugin that loaded later (no manual reload)" \
+    wait_until 10 plugin_is_loaded
+  expect_equal "margin is active after the late plugin load" \
+    "$(status_value tracking_effective)" "margin"
+  expect_equal "plugin edge_margin is the configured 0.30" \
+    "$(printf '%.2f' "$(option_value plugin:hyprzoom:edge_margin)")" "0.30"
+  expect_no_config_errors "plugin loaded later"
+  check_no_config_errors "with the plugin"
+  expect_equal "margin survives a Hyprland reload" "$(status_value tracking_effective)" "margin"
+  nested ctl plugin unload "$PLUGIN_SO" > /dev/null
+  expect_command "engine notices the unloaded plugin (no manual reload)" \
+    wait_until 10 plugin_is_missing
+  expect_equal "margin falls back to edge after the plugin unloaded" \
+    "$(status_value tracking_effective)" "edge"
+  expect_no_config_errors "plugin unloaded"
+  printf 'ZOOM_ANIMATION_SPEED=0.10\n' > "$WORK/user.conf"
+  engine 'return HyprZoom.reload()' > /dev/null
 }
 
 # filter_is_active — test whether the engine reports the filter as switched on.
@@ -477,6 +656,22 @@ show_pattern() {
   sleep 2.5
 }
 
+# run_plugin_section — build the plugin and run its lifecycle checks, or say why not.
+# Args:    none
+# Returns: 0 always; prints results or a SKIP line
+# Globals: reads WORK
+run_plugin_section() {
+  local build_status=0
+  build_plugin || build_status=$?
+  if [[ "$build_status" -eq 77 ]]; then
+    echo "SKIP plugin lifecycle: hyprland headers not installed"
+  elif [[ "$build_status" -ne 0 ]]; then
+    record_result FAIL "plugin build failed (see $WORK/plugin-build.log)"
+  else
+    check_plugin_lifecycle
+  fi
+}
+
 # summarize — print the totals and return the overall status.
 # Args:    none
 # Returns: 0 when nothing failed; 1 otherwise
@@ -501,7 +696,9 @@ main() {
   trap stop_nested EXIT
   start_nested || { echo "FAIL nested Hyprland or engine did not start"; return 1; }
   check_engine_loaded
+  check_no_config_errors
   check_binds
+  check_external_unbind
   check_zoom_steps
   check_rapid_notches
   check_tracking_modes
@@ -509,10 +706,13 @@ main() {
   show_pattern
   check_zoom_pixels
   check_filters
+  check_smart_invert_contrast
   check_filter_adjustments
   check_user_shader
   check_only_when_zoomed
+  check_filter_held_during_zoom_out
   check_reload_restores
+  run_plugin_section
   summarize
 }
 

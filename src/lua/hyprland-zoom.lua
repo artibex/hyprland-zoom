@@ -10,6 +10,8 @@ HyprZoom = HyprZoom or {}
 local DEFAULT_SHARE_DIRECTORY = "/usr/share/hyprland-zoom"
 
 -- file_exists — test whether a file can be opened for reading.
+-- Notes:   Deliberately standalone (also copied in config/hyprland-bindings.lua): the entry file
+--          must find the engine modules before it can require any of them (R-P1a-14).
 -- Args:    path string
 -- Returns: true when it can
 local function file_exists(path)
