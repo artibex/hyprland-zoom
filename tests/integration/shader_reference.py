@@ -138,12 +138,15 @@ def apply_filter(name, colour):
         return tuple(1.0 - c for c in colour)
     if name == "smart-invert":
         return smart_invert(colour)
+    # Greys use the shared luma weights.
     if name == "grayscale":
         return (luma(colour),) * 3
     if name == "grayscale-invert":
+        # Inverted luma, same value in all three channels.
         return (1.0 - luma(colour),) * 3
     if name == "high-contrast":
         return tuple(smoothstep(0.25, 0.75, c) for c in colour)
+    # Everything else is one of the three colour-vision corrections.
     return daltonize(colour, name)
 
 
@@ -184,5 +187,6 @@ def expected_colour(name, rgb_bytes, adjustments=None):
     source = tuple(channel / 255.0 for channel in rgb_bytes)
     filtered = apply_filter(name, source)
     mixed = tuple(s + (f - s) * values["intensity"] for s, f in zip(source, filtered))
+    # Adjustments run after the blend, like main() in base.glsl.
     final = adjust(mixed, values["contrast"], values["brightness"], values["saturation"])
     return tuple(int(round(c * 255.0)) for c in final)

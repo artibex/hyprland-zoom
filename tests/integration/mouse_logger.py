@@ -48,9 +48,11 @@ def main(arguments):
         print(__doc__)
         return 2
     log_path = arguments[0]
+    # Remember the terminal settings so they can be restored on exit.
     saved_attributes = termios.tcgetattr(sys.stdin)
     tty.setraw(sys.stdin.fileno())
     os.write(sys.stdout.fileno(), ENABLE_MOUSE)
+    # Tell the test that the window is up and reporting.
     append_to_log(log_path, b"READY\n")
     try:
         while True:
@@ -60,10 +62,12 @@ def main(arguments):
                 break
             append_to_log(log_path, data)
     finally:
+        # Switch mouse reporting off and restore the terminal, even after errors.
         os.write(sys.stdout.fileno(), DISABLE_MOUSE)
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, saved_attributes)
     return 0
 
 
+# Run only when executed as a script, not when imported.
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

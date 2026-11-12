@@ -213,8 +213,8 @@ check_binds() {
   local binds
   binds="$(nested ctl -j binds | jq -r '.[] | "\(.modmask) \(.key) \(.description)"')"
   # SUPER (64) + ALT (8) = 72 for every default chord.
-  expect_contains "bind scroll up zooms in" "$binds" "72 mouse_up hyprland-zoom: Zoom in"
-  expect_contains "bind scroll down zooms out" "$binds" "72 mouse_down hyprland-zoom: Zoom out"
+  expect_contains "bind scroll down zooms in" "$binds" "72 mouse_down hyprland-zoom: Zoom in"
+  expect_contains "bind scroll up zooms out" "$binds" "72 mouse_up hyprland-zoom: Zoom out"
   expect_contains "bind middle click toggles" "$binds" "72 mouse:274 hyprland-zoom: Toggle zoom"
   expect_contains "bind key I" "$binds" "72 I hyprland-zoom: Zoom in"
   expect_contains "bind key C" "$binds" "72 C hyprland-zoom: Toggle colour filter"
@@ -331,9 +331,9 @@ check_filters() {
 # Returns: 0 always; prints results
 # Globals: none
 check_filter_adjustments() {
-  engine "return HyprZoom.preview({ FILTER_ACTIVE = true, FILTER = 'invert', \
-FILTER_INTENSITY = 0.5, FILTER_CONTRAST = 1.5, FILTER_BRIGHTNESS = 0.1, \
-FILTER_SATURATION = 0.5 })" > /dev/null
+  engine "return HyprZoom.preview({ FILTER_ACTIVE = 'on', FILTER = 'invert', \
+FILTER_INTENSITY = '0.5', FILTER_CONTRAST = '1.5', FILTER_BRIGHTNESS = '0.1', \
+FILTER_SATURATION = '0.5' })" > /dev/null
   check_screen "invert with intensity/contrast/brightness/saturation" invert \
     intensity=0.5 contrast=1.5 brightness=0.1 saturation=0.5
   engine 'return HyprZoom.preview_end()' > /dev/null
@@ -367,7 +367,7 @@ check_user_shader() {
 # Returns: 0 always; prints results
 # Globals: none
 check_only_when_zoomed() {
-  engine "return HyprZoom.preview({ FILTER_ONLY_WHEN_ZOOMED = true, FILTER_ACTIVE = true })" \
+  engine "return HyprZoom.preview({ FILTER_ONLY_WHEN_ZOOMED = 'on', FILTER_ACTIVE = 'on' })" \
     > /dev/null
   expect_equal "no shader while unzoomed" "$(option_value decoration:screen_shader)" ""
   engine 'return HyprZoom.zoom_in()' > /dev/null
@@ -420,9 +420,8 @@ scroll_log_lines() {
 # Returns: 0 when a notch reached the client within three attempts; 1 otherwise
 # Globals: reads HERE
 send_control_notch() {
-  local attempt
   # The first motion gives the new window pointer focus; later attempts cover slow mapping.
-  for attempt in 1 2 3; do
+  for _ in 1 2 3; do
     python3 "$HERE/virtual_pointer.py" "$1" move:3,0 sleep:150 move:-3,0 sleep:150 up sleep:300
     [[ "$(scroll_log_lines "$2")" -gt 0 ]] && return 0
   done
@@ -445,11 +444,11 @@ check_scroll_notches() {
   expect_command "control: unmodified notch reaches the client" \
     send_control_notch "$display" "$log"
   : > "$log"
-  hold_super_alt_and_scroll "$display" up*20
+  hold_super_alt_and_scroll "$display" down*20
   expect_equal "20 fast SUPER+ALT+scroll notches all zoom" "$(status_value zoom)" "6.73"
   expect_equal "no notch leaked to the client" "$(scroll_log_lines "$log")" "0"
-  hold_super_alt_and_scroll "$display" down*20
-  expect_equal "20 fast notches down return to 1.00" "$(status_value zoom)" "1.00"
+  hold_super_alt_and_scroll "$display" up*20
+  expect_equal "20 fast notches up return to 1.00" "$(status_value zoom)" "1.00"
   nested ctl dispatch 'hl.dsp.window.close()' > /dev/null
 }
 

@@ -81,10 +81,12 @@ local function load_modules(modules_root)
       package.loaded[name] = nil
     end
   end
+  -- Let `require` find the engine modules while they load.
   package.path = modules_root .. "/?.lua;" .. previous_path
   local loaded, host_module, api_module = pcall(function()
     return require("hyprland-zoom.host"), require("hyprland-zoom.api")
   end)
+  -- Always restore the global search path, then re-raise a load error unchanged.
   package.path = previous_path
   if not loaded then
     error(host_module, 0)
@@ -117,6 +119,7 @@ if not entry_layout then
   report_startup_failure("engine files not found (set ZOOMCTL_SHARE_DIR or reinstall)",
     "hyprland-zoom: engine files not found")
 else
+  -- Report failures to the log and the user instead of raising into Hyprland.
   local started, problem = pcall(start_engine, entry_layout)
   if not started then
     report_startup_failure("engine failed to start: " .. tostring(problem),

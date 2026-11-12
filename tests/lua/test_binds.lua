@@ -54,7 +54,7 @@ T.case("the default plan matches contract C7", function()
   local plan = binds.plan(default_settings(), false)
   local map = chord_map(plan)
   local expected = {
-    ["SUPER + ALT + mouse_up"] = "zoom_in", ["SUPER + ALT + mouse_down"] = "zoom_out",
+    ["SUPER + ALT + mouse_down"] = "zoom_in", ["SUPER + ALT + mouse_up"] = "zoom_out",
     ["SUPER + ALT + mouse:274"] = "toggle", ["SUPER + ALT + I"] = "zoom_in",
     ["SUPER + ALT + O"] = "zoom_out", ["SUPER + ALT + 0"] = "toggle",
     ["SUPER + ALT + C"] = "filter_toggle", ["SUPER + ALT + Z"] = "open_settings",
@@ -66,6 +66,13 @@ T.case("the default plan matches contract C7", function()
   T.eq(plan.unbind, {})
   T.eq(map["SUPER + ALT + I"].repeating, true)
   T.eq(map["SUPER + ALT + O"].repeating, true)
+end)
+
+T.case("BIND_SCROLL_DIRECTION=up-in reverses the wheel", function()
+  -- up-in: scrolling up zooms in, scrolling down zooms out.
+  local map = chord_map(binds.plan(default_settings({ BIND_SCROLL_DIRECTION = "up-in" }), false))
+  T.eq(map["SUPER + ALT + mouse_up"].action, "zoom_in")
+  T.eq(map["SUPER + ALT + mouse_down"].action, "zoom_out")
 end)
 
 T.case("an empty key or a disabled switch removes that bind", function()
@@ -133,7 +140,7 @@ T.case("apply binds everything and a pre-existing Omarchy bind on the chord lose
     store)
   T.eq(problems, {})
   host.fire("SUPER + ALT + mouse_up")
-  T.eq(calls.zoom_in, 1)
+  T.eq(calls.zoom_out, 1)
   T.eq(calls.omarchy, nil)
 end)
 
@@ -142,9 +149,9 @@ T.case("every default chord fires its action", function()
   local host = stub_host.new()
   local calls = {}
   binds.apply(host, binds.plan(default_settings(), false), recording_actions(calls), {})
-  host.fire("SUPER + ALT + mouse_up")
-  host.fire("SUPER + ALT + I")
   host.fire("SUPER + ALT + mouse_down")
+  host.fire("SUPER + ALT + I")
+  host.fire("SUPER + ALT + mouse_up")
   host.fire("SUPER + ALT + 0")
   host.fire("SUPER + ALT + mouse:274")
   host.fire("SUPER + ALT + C")

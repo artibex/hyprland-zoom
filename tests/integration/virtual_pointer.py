@@ -16,6 +16,7 @@ import os
 import socket
 import struct
 import sys
+# Timestamps and pauses between steps.
 import time
 
 # wl_display requests and the registry events/requests used here.
@@ -121,12 +122,15 @@ class Connection:
             self.pending += self.stream.recv(65536)
         except socket.timeout:
             return []
+        # Decode every complete message in the buffer.
         events = []
         while len(self.pending) >= 8:
             object_id, size_and_opcode = struct.unpack("<II", self.pending[:8])
+            # The upper 16 bits carry the message size, the lower ones the opcode.
             size = size_and_opcode >> 16
             if len(self.pending) < size:
                 break
+            # Keep the decoded event and drop its bytes from the buffer.
             events.append((object_id, size_and_opcode & 0xFFFF, self.pending[8:size]))
             self.pending = self.pending[size:]
         return events
@@ -142,9 +146,11 @@ class Connection:
         self.send(DISPLAY_ID, DISPLAY_SYNC, struct.pack("<I", callback))
         received = []
         while True:
+            # Collect events until the sync callback fires.
             events = self.read_events()
             received += events
             if not events or any(event[0] == callback for event in events):
+                # Everything received while waiting, for the caller to inspect.
                 return received
 
 
@@ -162,9 +168,11 @@ def list_globals(connection):
     connection.send(DISPLAY_ID, DISPLAY_GET_REGISTRY, struct.pack("<I", registry))
     found = {}
     for object_id, opcode, payload in connection.round_trip():
+        # Only registry `global` announcements are interesting.
         if object_id == registry and opcode == REGISTRY_GLOBAL_EVENT:
             name, length = struct.unpack("<II", payload[:8])
             interface = payload[8:8 + length - 1].decode()
+            # The version follows the string, padded to 4 bytes.
             version_at = 8 + (length + 3) // 4 * 4
             found[interface] = (name, struct.unpack("<I", payload[version_at:version_at + 4])[0])
     return registry, found
@@ -187,6 +195,7 @@ def bind_global(connection, registry, globals_found, interface):
     bound = connection.new_id()
     payload = struct.pack("<I", name) + wire_string(interface) + struct.pack("<II", 1, bound)
     connection.send(registry, REGISTRY_BIND, payload)
+    # The caller uses the id to send requests.
     return bound
 
 
@@ -204,6 +213,7 @@ def create_pointer(connection):
     seat = bind_global(connection, registry, globals_found, "wl_seat")
     manager = bind_global(connection, registry, globals_found, "zwlr_virtual_pointer_manager_v1")
     pointer = connection.new_id()
+    # create_virtual_pointer(seat, new id).
     connection.send(manager, 0, struct.pack("<II", seat, pointer))
     return pointer
 
@@ -237,10 +247,12 @@ def send_notch(connection, pointer, name, start):
     axis, sign = NOTCHES[name]
     now = timestamp(start)
     connection.send(pointer, POINTER_AXIS_SOURCE, struct.pack("<I", AXIS_SOURCE_WHEEL))
-    connection.send(pointer, POINTER_AXIS, struct.pack("<II", now, axis) + fixed(sign * NOTCH_PIXELS))
+    # The same fixed-point value serves the pixel axis event and the discrete event.
+    axis_value = fixed(sign * NOTCH_PIXELS)
+    connection.send(pointer, POINTER_AXIS, struct.pack("<II", now, axis) + axis_value)
+    # The discrete step tells Hyprland this is a wheel notch.
     connection.send(pointer, POINTER_AXIS_DISCRETE,
-                    struct.pack("<II", now, axis) + fixed(sign * NOTCH_PIXELS)
-                    + struct.pack("<i", sign))
+                    struct.pack("<II", now, axis) + axis_value + struct.pack("<i", sign))
     connection.send(pointer, POINTER_FRAME)
 
 
@@ -261,11 +273,13 @@ def run_step(connection, pointer, step, start):
     if name.startswith("sleep:"):
         time.sleep(int(name[6:]) / 1000)
     elif name.startswith("move:"):
+        # Relative motion in pixels.
         delta_x, delta_y = (float(value) for value in name[5:].split(","))
         connection.send(pointer, POINTER_MOTION,
                         struct.pack("<I", timestamp(start)) + fixed(delta_x) + fixed(delta_y))
         connection.send(pointer, POINTER_FRAME)
     else:
+        # Without a repeat count the step runs once.
         for _ in range(int(count or 1)):
             send_notch(connection, pointer, name, start)
 
@@ -284,9 +298,11 @@ def main(arguments):
         print(__doc__)
         return 2
     connection = Connection(arguments[0])
+    # Everything below talks to this virtual pointer.
     pointer = create_pointer(connection)
     start = time.time()
     for step in arguments[1:]:
+        # Steps run in order, as typed on the command line.
         run_step(connection, pointer, step, start)
     # A final round trip makes sure the compositor handled everything before we exit.
     connection.round_trip()

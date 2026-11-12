@@ -21,7 +21,7 @@ T.tests_directory = tests_directory
 -- Suites in a fixed order so the PASS list is stable between runs.
 local ALL_SUITES = {
   "test_util", "test_schema", "test_config", "test_state", "test_zoom", "test_tracking",
-  "test_filter", "test_binds", "test_api", "test_host", "test_entry",
+  "test_filter", "test_binds", "test_api", "test_host", "test_entry", "test_lint",
 }
 
 -- suites_to_run — choose the suites named on the command line, or all of them.

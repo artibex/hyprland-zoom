@@ -76,15 +76,19 @@ end
 -- Args:    plan table; seen set; settings effective settings; modifier_text string
 -- Returns: nothing
 local function add_scroll_and_mouse_binds(plan, seen, settings, modifier_text)
-  -- Scroll up zooms in, scroll down zooms out (C7).
+  -- Default `down-in`: wheel towards the user (mouse_down) zooms in, as in 0.1 (C7).
   if settings.BIND_SCROLL then
-    add_bind(plan, seen, { keys = modifier_text .. " + mouse_up", action = "zoom_in",
-      description = "Zoom in" })
-    add_bind(plan, seen, { keys = modifier_text .. " + mouse_down", action = "zoom_out",
-      description = "Zoom out" })
+    local zooms_in_on_down = settings.BIND_SCROLL_DIRECTION == "down-in"
+    add_bind(plan, seen, { keys = modifier_text .. " + mouse_down",
+      action = zooms_in_on_down and "zoom_in" or "zoom_out",
+      description = zooms_in_on_down and "Zoom in" or "Zoom out" })
+    -- The opposite wheel direction does the opposite zoom.
+    add_bind(plan, seen, { keys = modifier_text .. " + mouse_up",
+      action = zooms_in_on_down and "zoom_out" or "zoom_in",
+      description = zooms_in_on_down and "Zoom out" or "Zoom in" })
   end
+  -- Middle click toggles the zoom (C7).
   if settings.BIND_MOUSE_TOGGLE then
-    -- Middle click toggles the zoom (C7).
     add_bind(plan, seen, { keys = modifier_text .. " + " .. MIDDLE_MOUSE_KEY, action = "toggle",
       description = "Toggle zoom" })
   end

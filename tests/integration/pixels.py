@@ -52,6 +52,7 @@ def write_png(path, width, height, rows):
     png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header)
     png += chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b"")
     with open(path, "wb") as handle:
+        # Write the finished file in one go.
         handle.write(png)
 
 
@@ -89,6 +90,7 @@ def unfilter_scanline(kind, line, previous, bytes_per_pixel):
         left = line[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
         above = previous[index]
         upper_left = previous[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+        # The predictor for filter types 0..4 (none, left, up, average, Paeth).
         predictor = (0, left, above, (left + above) >> 1, paeth(left, above, upper_left))[kind]
         line[index] = (line[index] + predictor) & 255
     return line
@@ -108,12 +110,15 @@ def read_png(path):
         data = handle.read()
     position, compressed, colour_type, width, height = 8, b"", 2, 0, 0
     while position < len(data):
+        # Every chunk starts with its body length and a four-letter type.
         length, kind = struct.unpack(">I4s", data[position:position + 8])
         body = data[position + 8:position + 8 + length]
         if kind == b"IHDR":
+            # The header chunk carries the image size and the colour type.
             width, height = struct.unpack(">II", body[:8])
             colour_type = body[9]
         elif kind == b"IDAT":
+            # Image data may be split over several IDAT chunks; join them.
             compressed += body
         position += 12 + length
     # Colour type 2 is RGB, 6 is RGBA; both with 8 bits per channel.
@@ -121,9 +126,11 @@ def read_png(path):
     raw = zlib.decompress(compressed)
     stride = width * bytes_per_pixel
     rows, previous = [], bytearray(stride)
+    # Each scanline is one filter byte plus `stride` data bytes.
     for row_index in range(height):
         start = row_index * (stride + 1)
         line = bytearray(raw[start + 1:start + 1 + stride])
+        # The unfiltered line is the reference for the next one.
         previous = unfilter_scanline(raw[start], line, previous, bytes_per_pixel)
         rows.append(previous)
     return width, height, bytes_per_pixel, rows
@@ -159,7 +166,8 @@ def pattern_colour(x, y, width, height):
         (r, g, b) integers.
     """
     # White stripes inside the band, otherwise the quadrant colour.
-    if STRIPE_TOP < y < STRIPE_BOTTOM and (x // STRIPE_WIDTH) % (STRIPE_PERIOD // STRIPE_WIDTH) == 0:
+    in_band = STRIPE_TOP < y < STRIPE_BOTTOM
+    if in_band and (x // STRIPE_WIDTH) % (STRIPE_PERIOD // STRIPE_WIDTH) == 0:
         return (255, 255, 255)
     return QUADRANT_COLOURS[(1 if x >= width // 2 else 0) + (2 if y >= height // 2 else 0)]
 
@@ -211,9 +219,11 @@ def check_filter(path, filter_name, adjustments):
     problems = []
     for (x, y), source in zip(SAMPLE_POINTS, QUADRANT_COLOURS):
         expected = shader_reference.expected_colour(filter_name, source, adjustments)
+        # Compare the worst channel difference with the tolerance.
         actual = pixel_at(image, x, y)
         if max(abs(a - e) for a, e in zip(actual, expected)) > TOLERANCE:
             problems.append(f"({x},{y}) {filter_name}: expected {expected}, got {actual}")
+    # An empty list means every sample matched.
     return problems
 
 
@@ -232,6 +242,7 @@ def stripe_width(path, y):
     longest = current = 0
     for x in range(image[0]):
         current = current + 1 if pixel_at(image, x, y) == (255, 255, 255) else 0
+        # Keep the longest run seen so far.
         longest = max(longest, current)
     return longest
 
@@ -250,16 +261,20 @@ def main(arguments):
     if command == "make":
         make_pattern(arguments[1], *(int(value) for value in arguments[2:4]))
         return 0
+    # Compare a screenshot with a filter prediction.
     if command == "check":
         problems = check_filter(arguments[1], arguments[2], parse_adjustments(arguments[3:]))
         print("\n".join(problems) if problems else "OK")
+        # Non-zero status lets the shell test count a failure.
         return 1 if problems else 0
     if command == "stripe":
         print(stripe_width(arguments[1], int(arguments[2])))
+        # Measuring never fails; the caller compares the number.
         return 0
     print(__doc__)
     return 2
 
 
+# Run only when executed as a script, not when imported.
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

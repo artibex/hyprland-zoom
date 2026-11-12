@@ -212,6 +212,8 @@ command_run() {
   signature="$(read_state_file sig)"
   WAYLAND_DISPLAY="$display" HYPRLAND_INSTANCE_SIGNATURE="$signature" \
     setsid "$@" > /dev/null 2>&1 &
+  # Remember the client so `stop` can end it (clients can outlive a killed compositor).
+  echo $! >> "$STATE_DIR/clients"
 }
 
 # command_log — print the tail of the nested Hyprland log.
@@ -220,6 +222,21 @@ command_run() {
 # Globals: reads RUNTIME_DIR, STATE_DIR
 command_log() {
   tail -n "${1:-60}" "$RUNTIME_DIR/hypr/$(read_state_file sig)/hyprland.log"
+}
+
+# stop_recorded_clients — end the clients started through `run` (only the recorded PIDs).
+# Args:    none
+# Returns: 0 always
+# Globals: reads STATE_DIR; removes the clients file
+stop_recorded_clients() {
+  local client_pid
+  # Nothing recorded means nothing to do.
+  [[ -f "$STATE_DIR/clients" ]] || return 0
+  while read -r client_pid; do
+    kill "$client_pid" 2> /dev/null || true
+  done < "$STATE_DIR/clients"
+  # The list is consumed; the next start begins empty.
+  rm -f "$STATE_DIR/clients"
 }
 
 # command_stop — stop ONLY the instance this script started.
@@ -232,11 +249,13 @@ command_stop() {
   if ! is_instance_running; then
     echo "not running"
     # Remove the leftovers so the next start begins clean.
+    stop_recorded_clients
     rm -f "$STATE_DIR"/{sig,pid,wl}
     return 0
   fi
   # The recorded PID is the only process this script may ever signal.
   pid="$(cat "$STATE_DIR/pid")"
+  stop_recorded_clients
   signature="$(cat "$STATE_DIR/sig" 2> /dev/null || true)"
   # Polite first, forceful only after five seconds.
   kill "$pid"

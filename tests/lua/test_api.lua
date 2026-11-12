@@ -51,25 +51,25 @@ T.case("status reports every C6 key in contract order", function()
     { "centered", "centered", "0" })
 end)
 
-T.case("20 rapid scroll notches all zoom: none is lost", function()
+T.case("20 rapid scroll notches (wheel down) all zoom: none is lost", function()
   -- The user's #1 bug: every notch must count. 1.1^20 = 6.7275.
   local api, host = new_engine()
   for _ = 1, 20 do
-    T.truthy(host.fire("SUPER + ALT + mouse_up"))
+    T.truthy(host.fire("SUPER + ALT + mouse_down"))
   end
   T.near(tonumber(status_of(api).zoom), 6.73, 0.006)
   T.near(host.record.config["cursor.zoom_factor"], 1.1 ^ 20, 1e-4)
 end)
 
-T.case("scroll down zooms out and the zoom never leaves [min, max]", function()
+T.case("scroll up zooms out and the zoom never leaves [min, max]", function()
   -- 100 notches in then 100 notches out: bounds hold, return is exact.
   local api, host = new_engine()
   for _ = 1, 100 do
-    host.fire("SUPER + ALT + mouse_up")
+    host.fire("SUPER + ALT + mouse_down")
   end
   T.eq(status_of(api).zoom, "10.00")
   for _ = 1, 100 do
-    host.fire("SUPER + ALT + mouse_down")
+    host.fire("SUPER + ALT + mouse_up")
   end
   T.eq(status_of(api).zoom, "1.00")
 end)
@@ -280,7 +280,7 @@ T.case("loading the entry twice in one Lua state keeps the zoom and the binds", 
   require("hyprland-zoom.api").install(api, host, layout)
   T.eq(status_of(api).zoom, "2.00")
   T.eq(#stub_host.live_chords(host), 8)
-  host.fire("SUPER + ALT + mouse_up")
+  host.fire("SUPER + ALT + mouse_down")
   T.eq(status_of(api).zoom, "2.20")
 end)
 
@@ -296,7 +296,7 @@ end)
 T.case("preview applies overrides live without touching saved settings", function()
   -- FILTER_ACTIVE and a baked contrast value show up in the shader; nothing is persisted as config.
   local api, host = new_engine()
-  T.eq(api.preview({ FILTER_ACTIVE = true, FILTER = "grayscale", FILTER_CONTRAST = 2.0 }), "ok")
+  T.eq(api.preview({ FILTER_ACTIVE = "on", FILTER = "grayscale", FILTER_CONTRAST = "2.00" }), "ok")
   local status = status_of(api)
   T.eq({ status.filter, status.filter_active }, { "grayscale", "on" })
   local shader = host.files[status.filter_shader]
@@ -307,7 +307,7 @@ end)
 T.case("preview_end restores the saved configuration", function()
   -- After the end the shader is gone and the settings are the saved ones again.
   local api, host = new_engine()
-  api.preview({ FILTER_ACTIVE = true, SCROLL_EVENT_DELAY_MS = 120 })
+  api.preview({ FILTER_ACTIVE = "on", SCROLL_EVENT_DELAY_MS = "120" })
   T.eq(host.record.config["binds.scroll_event_delay"], 120)
   T.eq(api.preview_end(), "ok")
   T.eq(host.record.config["binds.scroll_event_delay"], 0)
@@ -372,7 +372,7 @@ T.case("a failing hl call inside a bind callback never raises", function()
   host.hl.config = function()
     error("compositor said no")
   end
-  T.truthy(host.fire("SUPER + ALT + mouse_up"))
+  T.truthy(host.fire("SUPER + ALT + mouse_down"))
   T.truthy(#host.record.notifications >= 1)
 end)
 
@@ -384,7 +384,7 @@ T.case("notifications are not repeated for the same problem", function()
   end
   local before = #host.record.notifications
   for _ = 1, 20 do
-    host.fire("SUPER + ALT + mouse_up")
+    host.fire("SUPER + ALT + mouse_down")
   end
   T.eq(#host.record.notifications - before, 1)
 end)
