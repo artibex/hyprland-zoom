@@ -21,7 +21,8 @@ hyprlang config keeps a best-effort fallback (E8).
 | E9 | The engine keeps the zoom animation (`zoomFactor` leaf) **enabled** at all times; "instant" means the smallest speed (0.1). | With the animation disabled, re-entering the same zoom level reuses a stale camera (Hyprland quirk). |
 | E10 | Hyprland reload (Omarchy reloads on every config save/theme change) resets all options and the Lua state. The engine persists `{zoom, saved_zoom, filter_active}` to the state file (C5) on change and restores it at load when `ZOOM_RESTORE_ON_RELOAD` is on. | Otherwise every theme switch snaps an active zoom back to 1.0. |
 | E11 | Default binds avoid Omarchy collisions; see C7. When `BIND_TAKEOVER_OMARCHY` is on, the engine unbinds Omarchy's `SUPER+ALT+mouse_up/down` (group cycling) and re-routes Omarchy's own zoom binds (`SUPER+CTRL+Z` in, `SUPER+CTRL+ALT+Z` reset) to the engine, so two zoom engines never fight over `cursor.zoom_factor`. | Both binds fire on the same combo otherwise. |
-| E12 | Step model: `ZOOM_STEP_MODE=multiply` (default) multiplies the zoom by `1 + ZOOM_STEP` per notch, `add` adds `ZOOM_STEP`. Zoom is clamped to `[ZOOM_MIN, ZOOM_MAX]` ⊆ [1, 10] and kept as a Lua double (Hyprland stores float32). | Multiplicative steps feel even at every zoom level (macOS behaviour); Hyprland does no range check on the Lua path. |
+| E12 | Step model: `ZOOM_STEP_MODE=multiply` (default) multiplies the zoom by `1 + ZOOM_STEP` per notch, `add` adds `ZOOM_STEP`. Zoom is clamped to `[ZOOM_MIN, ZOOM_MAX]` ⊆ [1, 10] and kept as a Lua double (Hyprland stores float32). | Multiplicative steps feel even at every zoom level (macOS behaviour); Hyprland 0.56 does no range check on the Lua path (0.57 does). |
+| E13 | User-visible text is US English ("color", "centered"). | One spelling across schema, CLI, UI and docs. |
 
 ## Repository layout and ownership (0.2 implementation wave)
 
@@ -73,7 +74,8 @@ Line format, `|`-separated, `#` comments and blank lines ignored:
 All functions return a short string (never empty) for `hyprctl repl` and never raise into
 Hyprland (errors → `hl.notification` / log + return `"error=<text>"`).
 - `HyprZoom.zoom_in(notches)`, `HyprZoom.zoom_out(notches)` — default 1 notch.
-- `HyprZoom.set_zoom(factor)`, `HyprZoom.toggle()`, `HyprZoom.reset()`.
+- `HyprZoom.set_zoom(factor, remember)` (`remember=false`: transient, e.g. a UI test zoom, leaves
+  `saved_zoom` untouched), `HyprZoom.toggle()`, `HyprZoom.reset()`.
 - `HyprZoom.filter(action)` — `"on" | "off" | "toggle" | <filter name>`.
 - `HyprZoom.reload()` — re-read schema + config files, re-apply binds, tracking, filter, animation.
 - `HyprZoom.preview(overrides_table)` — apply overrides (schema keys → values as canonical
@@ -89,7 +91,7 @@ Engine reachable (Lua config + `HyprZoom` loaded): actions are forwarded with
 `hyprctl eval 'HyprZoom.<fn>(…)'`, queries with `hyprctl repl 'return HyprZoom.status()'`.
 Otherwise the legacy bash path (E8). Commands (exit 0 = success, 1 = error with message on
 stderr, 2 = usage):
-- `in [n]`, `out [n]`, `zoom <factor>`, `toggle`, `reset`
+- `in [n]`, `out [n]`, `zoom <factor> [--transient]`, `toggle`, `reset`
 - `filter [on|off|toggle|<name>]`, `tracking <centered|edge|margin|follow>`
 - `set <key> <value>` (validate C1, write user file, then `HyprZoom.reload()`),
   `get <key>`, `unset <key>` (remove the user override), `reset-config` (delete user overrides)
