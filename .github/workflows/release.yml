@@ -1,0 +1,84 @@
+name: Release
+
+# A tag v<VERSION> builds the Arch package in a clean container and attaches the package and a
+# checksum file to a GitHub release. The release notes are the matching CHANGELOG.md section.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Build the package
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install the build tools
+        run: pacman -Syu --noconfirm --needed base-devel git lua sudo
+      - uses: actions/checkout@v4
+      - name: The tag, VERSION and PKGBUILD must agree
+        run: |
+          version="$(cat VERSION)"
+          test "$GITHUB_REF_NAME" = "v$version"
+          grep -qx "pkgver=$version" PKGBUILD
+      - name: Build the package with its check() (as a normal user)
+        run: |
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          mkdir -p /tmp/hzoom-build /tmp/hzoom-pkg
+          chown builder:builder /tmp/hzoom-build /tmp/hzoom-pkg
+          su builder -c "cd '$GITHUB_WORKSPACE' && BUILDDIR=/tmp/hzoom-build PKGDEST=/tmp/hzoom-pkg makepkg -f --nodeps --noconfirm"
+      - name: Checksums of everything that is attached
+        run: |
+          mkdir dist
+          cp /tmp/hzoom-pkg/*.pkg.tar.zst dist/
+          cd dist
+          sha256sum -- *.pkg.tar.zst > sha256sums
+          cat sha256sums
+      - name: Hand the files to the release job
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: dist
+          if-no-files-found: error
+
+  release:
+    name: Publish the release
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the built files
+        uses: actions/download-artifact@v4
+        with:
+          name: release-files
+          path: dist
+      - name: Release notes are the CHANGELOG section of this version
+        run: |
+          awk -v version="${GITHUB_REF_NAME#v}" '
+            $0 ~ "^## \\[" version "\\]" { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }' CHANGELOG.md > notes.md
+          test -s notes.md || echo "Release ${GITHUB_REF_NAME}" > notes.md
+      - name: Create the release, or update the files of an existing one
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag \
+              --title "hyprland-zoom ${GITHUB_REF_NAME#v}" --notes-file notes.md
+          fi

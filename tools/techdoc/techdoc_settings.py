@@ -183,10 +183,16 @@ def expected_configuration_doc(root):
 
 
 def documented_keys(document):
-    """List the keys that appear as table rows in a document.
+    """List the keys that appear as table rows of the generated settings block.
 
-    Args: document - markdown text.
+    Args: document - markdown text; only the part between the markers counts when both
+          markers exist (other tables may start with a backticked key as well).
     Returns: list of schema-style keys found in the first column of table rows.
     """
+    # Restrict the search to the generated block so unrelated tables are not mistaken for keys.
+    begin = document.find(BEGIN_MARKER)
+    end = document.find(END_MARKER)
+    if begin >= 0 and end > begin:
+        document = document[begin:end]
     # Table rows start with a backticked upper-case key.
     return re.findall(r'^\| `([A-Z][A-Z0-9_]*)` \|', document, re.MULTILINE)

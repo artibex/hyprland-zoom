@@ -67,10 +67,13 @@ all:
 
 # Syntax-check every script without running it, plus the generated docs and the desktop file.
 check:
-	bash -n $(SHELL_SOURCES) $(SHELL_TESTS)
-	$(LUAC) -p $(LUA_SOURCES)
+	@echo 'check: bash -n'
+	@bash -n $(SHELL_SOURCES) $(SHELL_TESTS)
+	@echo 'check: luac -p'
+	@$(LUAC) -p $(LUA_SOURCES)
 # compile() only parses, so no __pycache__ appears in the working tree.
-	$(PYTHON) -c "$$SYNTAX_CHECK" $(PYTHON_SOURCES) $(PYTHON_SCRIPTS)
+	@echo 'check: python syntax'
+	@$(PYTHON) -c "$$SYNTAX_CHECK" $(PYTHON_SOURCES) $(PYTHON_SCRIPTS)
 # The desktop file check is skipped (loudly) when the validator is not installed.
 	if command -v desktop-file-validate >/dev/null 2>&1; then \
 	  desktop-file-validate data/$(APP_ID).desktop; \
@@ -80,13 +83,15 @@ check:
 # shellcheck: -x follows sourced libraries; the exclusions are cross-file tables (SC2034) and
 # associative-array subscripts (SC2004), the same set as tests/run.sh.
 lint:
-	$(SHELLCHECK) -x -e SC1090,SC1091,SC2034,SC2004 $(SHELL_SOURCES) $(SHELL_TESTS)
+	@echo 'lint: shellcheck'
+	@$(SHELLCHECK) -x -e SC1090,SC1091,SC2034,SC2004 $(SHELL_SOURCES) $(SHELL_TESTS)
 
 # The coding-standard gate: techdoc covers shell, python docstrings and Lua headers, the
 # comment-run checker covers python statements without an intent comment.
 qa:
 	$(PYTHON) tools/techdoc/techdoc.py check
-	$(PYTHON) tools/qa/comment-runs.py $(PYTHON_SOURCES)
+	@echo 'qa: python comment runs'
+	@$(PYTHON) tools/qa/comment-runs.py $(PYTHON_SOURCES)
 # Extensionless python scripts are checked through a .py copy.
 	status=0; for script in $(PYTHON_SCRIPTS); do \
 	  copy="$$(mktemp --suffix=.py)"; cp "$$script" "$$copy"; \

@@ -1,0 +1,128 @@
+name: CI
+
+# Runs on every push and pull request. Independent jobs, so one red job never hides another:
+#   static   - syntax, shellcheck, coding-standard gate, repository checks (ubuntu, quick)
+#   tests    - bash suites and Lua unit tests on Arch (the engine targets Lua 5.5)
+#   gui      - settings app suite on a headless GTK Broadway display (Arch)
+#   package  - makepkg, namcap, .SRCINFO diff, install and run the built package (Arch)
+#   plugin   - hyprzoom plugin unit tests and a real build against the Arch hyprland headers
+# Arch containers are used wherever the target stack (Lua 5.5, GTK 4, pacman) is the point.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: Static checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install shellcheck, Lua and the desktop file validator
+        run: sudo apt-get update && sudo apt-get install -y shellcheck lua5.4 desktop-file-utils
+      - name: Syntax (bash, Lua, python, desktop file, generated settings tables)
+        run: make check LUAC=luac5.4
+      - name: Shellcheck
+        run: make lint SHELLCHECK=shellcheck
+      - name: Coding-standard gate (techdoc R1-R8 and python comment runs)
+        run: make qa
+      - name: Repository checks (techdoc unit tests, versions, install layout, workflows, docs)
+        run: make test-repo
+
+  tests:
+    name: Bash and Lua suites
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install the test dependencies
+        run: pacman -Syu --noconfirm --needed bash coreutils gawk git glslang grep lua make sed util-linux
+      - uses: actions/checkout@v4
+      - name: Run tests/run.sh as a normal user (the suites use scratch homes and a fake hyprctl)
+        run: |
+          useradd -m tester
+          chown -R tester:tester "$GITHUB_WORKSPACE"
+          su tester -c "cd '$GITHUB_WORKSPACE' && bash tests/run.sh"
+
+  gui:
+    name: Settings app (GTK 4, Broadway)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install the GTK stack
+        run: pacman -Syu --noconfirm --needed git gtk4 libadwaita make python python-gobject ttf-dejavu
+      - uses: actions/checkout@v4
+      - name: Run the GUI suite as a normal user (the app refuses to run as root)
+        run: |
+          useradd -m tester
+          chown -R tester:tester "$GITHUB_WORKSPACE"
+          su tester -c "cd '$GITHUB_WORKSPACE' && bash tests/gui/run.sh"
+
+  package:
+    name: Arch package
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install the build tools
+        run: pacman -Syu --noconfirm --needed base-devel git lua namcap sudo
+      - uses: actions/checkout@v4
+      - name: Check that .SRCINFO matches the PKGBUILD (as a normal user)
+        run: |
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          su builder -c "cd '$GITHUB_WORKSPACE' && makepkg --printsrcinfo | diff - .SRCINFO"
+      - name: Build the package with its check() (BUILDDIR keeps the repository's src/ untouched)
+        run: |
+          mkdir -p /tmp/hzoom-build /tmp/hzoom-pkg
+          chown builder:builder /tmp/hzoom-build /tmp/hzoom-pkg
+          su builder -c "cd '$GITHUB_WORKSPACE' && BUILDDIR=/tmp/hzoom-build PKGDEST=/tmp/hzoom-pkg makepkg -f --nodeps --noconfirm"
+      - name: namcap (errors fail the job, warnings are listed)
+        run: |
+          namcap "$GITHUB_WORKSPACE/PKGBUILD" /tmp/hzoom-pkg/*.pkg.tar.zst | tee /tmp/namcap.log
+          ! grep -E ' E: ' /tmp/namcap.log
+      - name: Install the built package with pacman and run it
+        run: |
+          pacman -U --noconfirm /tmp/hzoom-pkg/*.pkg.tar.zst
+          zoomctl help
+          test "$(zoomctl version)" = "zoomctl $(cat VERSION)"
+          zoomctl config --porcelain | grep -c '='
+          python -c "import sys; sys.path.insert(0, '/usr/share/hyprland-zoom/ui'); import hyprland_zoom_settings.app"
+          desktop-file-validate /usr/share/applications/io.github.artibex.HyprlandZoom.desktop
+      - name: Remove it again (the package hook must not fail the transaction)
+        run: pacman -Rns --noconfirm hyprland-zoom
+
+  plugin:
+    name: hyprzoom plugin
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install the compiler and the Hyprland headers
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git hyprland hyprutils libdrm libinput \
+            libxkbcommon pango pixman systemd-libs wayland
+          pacman -Q hyprland | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/checkout@v4
+      - name: Unit tests, native-equivalence test and a real build of plugin/hyprzoom.so
+        run: |
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          su builder -c "cd '$GITHUB_WORKSPACE' && bash tests/plugin/run.sh"
+      - name: The build must have produced the shared object (exit 77 would mean skipped)
+        run: test -s plugin/hyprzoom.so
