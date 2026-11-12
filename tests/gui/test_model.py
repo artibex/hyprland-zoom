@@ -355,6 +355,11 @@ class LayoutTests(unittest.TestCase):
         self.assertGreater(large[1], normal[1])
         # Text smaller than normal never shrinks below the base size.
         self.assertEqual(sizing.default_window_size(0.8, None), normal)
+        # Only real screens limit the window: a tiny nested output is ignored.
+        self.assertEqual(sizing.smallest_usable_monitor([(342, 171), (3440, 1440), (1920, 1080)]),
+                         (1920, 1080))
+        # Without any real screen there is no limit at all.
+        self.assertIsNone(sizing.smallest_usable_monitor([(342, 171)]))
         capped = sizing.default_window_size(1.64, (1280, 720))
         self.assertLessEqual(capped[0], 1280 * 0.9)
         self.assertLessEqual(capped[1], 720 * 0.9)

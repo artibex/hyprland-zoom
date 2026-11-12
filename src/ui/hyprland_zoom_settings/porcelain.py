@@ -15,8 +15,9 @@ ENGINE_UNREACHABLE = "unreachable"
 PLUGIN_LOADED = "loaded"
 # What zoomctl reports as the compositor version when it cannot reach Hyprland.
 HYPRLAND_UNKNOWN = "unknown"
-# The tracking mode that needs the optional plugin.
+# The tracking mode that needs the optional plugin, and what Hyprland does without it.
 MARGIN_MODE = "margin"
+FALLBACK_MODE = "edge"
 
 # What the window has to tell the user about the engine, derived in ``EngineStatus.state``.
 STATE_READY = "ready"
@@ -245,7 +246,7 @@ def tracking_notice(configured: str, status: EngineStatus) -> Optional[TrackingN
         return None
     # Margin without its plugin has its own explanation and a fix.
     if configured == MARGIN_MODE and not status.plugin_loaded:
-        return _missing_plugin_notice(status)
+        return _missing_plugin_notice()
     effective = status.tracking_effective
     # Agreeing modes (or an unknown one) need no words.
     if not effective or effective == configured:
@@ -256,19 +257,16 @@ def tracking_notice(configured: str, status: EngineStatus) -> Optional[TrackingN
     )
 
 
-def _missing_plugin_notice(status: EngineStatus) -> TrackingNotice:
+def _missing_plugin_notice() -> TrackingNotice:
     """Word the notice for margin mode without the hyprzoom plugin.
-
-    Args:
-        status: Current engine status.
 
     Returns:
         The notice; its body names the mode Hyprland falls back to.
     """
-    # Without the plugin Hyprland uses edge mode with its fixed margin.
-    using = status.tracking_effective if status.tracking_effective != MARGIN_MODE else "edge"
-    label = option_label("ZOOM_TRACKING", using)
-    note = FALLBACK_NOTES.get(using, "")
+    # Without the plugin Hyprland uses edge mode with its fixed margin (contract E5); the
+    # reported effective mode may lag behind a change made a moment ago, so it is not used.
+    label = option_label("ZOOM_TRACKING", FALLBACK_MODE)
+    note = FALLBACK_NOTES.get(FALLBACK_MODE, "")
     return TrackingNotice(
         "Margin mode needs the hyprzoom plugin",
         f"Margin is selected, but Hyprland is using {label}{note} because the plugin "

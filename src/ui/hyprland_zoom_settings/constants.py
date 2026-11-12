@@ -36,6 +36,8 @@ BASE_WIDTH = 820
 BASE_HEIGHT = 640
 # A default window never covers more than this fraction of the monitor.
 MONITOR_FRACTION = 0.9
+# Outputs smaller than this are no real screens (a nested compositor's host window).
+MIN_USABLE_MONITOR = (800, 600)
 # GTK reports the font resolution in 1/1024 dpi; 96 dpi is the unscaled reference.
 XFT_DPI_DIVISOR = 1024
 REFERENCE_DPI = 96
