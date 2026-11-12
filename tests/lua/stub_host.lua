@@ -4,7 +4,7 @@
 -- The module table returned to callers.
 local M = {}
 
--- Config keys the fake accepts; anything else raises like the real `hl.config` does.
+-- Config keys the fake knows; an unknown key becomes a recorded config error, as on 0.56.
 local KNOWN_CONFIG_KEYS = {
   ["cursor.zoom_factor"] = 1.0,
   ["cursor.zoom_disable_aa"] = false,
@@ -12,6 +12,11 @@ local KNOWN_CONFIG_KEYS = {
   ["cursor.zoom_detached_camera"] = true,
   ["binds.scroll_event_delay"] = 300,
   ["decoration.screen_shader"] = "",
+}
+-- Options only a loaded hyprzoom plugin owns (they vanish when it unloads).
+local PLUGIN_CONFIG_KEYS = {
+  ["plugin.hyprzoom.edge_margin"] = 0.05,
+  ["plugin.hyprzoom.enabled"] = true,
 }
 
 -- float32_round — mimic Hyprland storing numbers as 32-bit floats.
@@ -48,6 +53,45 @@ local function flatten_config(nested, prefix, flat)
   return flat
 end
 
+-- M.new_handle — create a keybind handle that behaves like HL.Keybind in 0.56.
+-- Args:    record table (counts forbidden calls); binding table; keys string
+-- Returns: handle table whose tostring() says `expired` once the bind is gone
+-- Notes:   Calling remove() on an expired handle crashes the real compositor, so the fake counts
+--          it in record.expired_calls and raises; tests assert the counter stays 0.
+function M.new_handle(record, binding, keys)
+  local handle = {
+    -- remove() deletes every bind on the chord, but only while the handle is alive.
+    remove = function()
+      if not binding.alive then
+        record.expired_calls = record.expired_calls + 1
+        error("expired handle dereferenced", 2)
+      end
+      for _, other in ipairs(record.bindings) do
+        if other.chord == binding.chord then
+          other.alive = false
+        end
+      end
+    end,
+    set_enabled = function() end,
+  }
+  -- tostring() is the one method that stays safe on an expired handle.
+  return setmetatable(handle, { __tostring = function()
+    return binding.alive and "HL.Keybind(0x1)" or "HL.Keybind(expired)"
+  end })
+end
+
+-- M.set_plugin — change the fake plugin state.
+-- Args:    record table from host.record; state table {listed = boolean, config = boolean}
+-- Returns: nothing
+-- Notes:   `listed` is what hl.get_loaded_plugins reports, `config` whether the plugin's own
+--          options exist; they differ while a plugin loads or unloads.
+function M.set_plugin(record, state)
+  record.plugin_listed = state.listed
+  for key, value in pairs(PLUGIN_CONFIG_KEYS) do
+    record.config[key] = state.config and (record.config[key] or value) or nil
+  end
+end
+
 -- build_hl — create the fake `hl` table and the record it writes into.
 -- Args:    record table receiving the call logs; options table (plugins, strict_binds)
 -- Returns: the fake hl table
@@ -59,26 +103,34 @@ local function build_hl(record, options)
   end
   record.config_calls, record.bindings, record.unbinds = {}, {}, {}
   record.animations, record.window_rules, record.execs = {}, {}, {}
-  record.notifications = {}
+  record.notifications, record.config_errors, record.bind_events = {}, {}, {}
+  record.handlers, record.expired_calls = {}, 0
+  record.plugin_listed = false
+  -- A plugin that is loaded from the start owns its config values from the start.
+  if options.plugin_loaded then
+    M.set_plugin(record, { listed = true, config = true })
+  end
 
   local hl = { dsp = {}, notification = {} }
 
-  -- hl.config: validate keys, store floats as float32, record the call.
+  -- hl.config: store known keys, RECORD unknown ones as config errors; never raises (0.56).
   function hl.config(nested)
     local flat = flatten_config(nested)
     for key, value in pairs(flat) do
-      -- Plugin keys are accepted before the plugin loads (verified on 0.56.2).
-      local known = KNOWN_CONFIG_KEYS[key] ~= nil or key:match("^plugin%.hyprzoom%.") ~= nil
-      if not known then
-        error("unknown config key '" .. key .. "'", 2)
+      if record.config[key] == nil then
+        record.config_errors[#record.config_errors + 1] = "unknown config key '" .. key .. "'"
+      else
+        record.config[key] = (key == "cursor.zoom_factor") and float32_round(value) or value
       end
-      record.config[key] = (key == "cursor.zoom_factor") and float32_round(value) or value
     end
     record.config_calls[#record.config_calls + 1] = flat
   end
 
-  -- hl.get_config: nil for unknown keys, like the real API.
+  -- hl.get_config: `nil, message` for unknown keys, like the real API.
   function hl.get_config(key)
+    if record.config[key] == nil then
+      return nil, "unknown config key '" .. key .. "'"
+    end
     return record.config[key]
   end
 
@@ -96,19 +148,18 @@ local function build_hl(record, options)
     local binding = { keys = keys, chord = normalize_chord(keys), action = action,
       opts = opts or {}, alive = true }
     record.bindings[#record.bindings + 1] = binding
-    -- The handle mimics HL.Keybind: remove() deletes every bind on the chord.
-    binding.handle = {
-      remove = function()
-        kill_chord(keys)
-      end,
-      set_enabled = function() end,
-    }
+    record.bind_events[#record.bind_events + 1] = { "bind", keys }
+    binding.handle = M.new_handle(record, binding, keys)
     return binding.handle
   end
 
   -- hl.unbind: record the request, then kill the chord like the real API.
   function hl.unbind(keys)
     record.unbinds[#record.unbinds + 1] = keys
+    record.bind_events[#record.bind_events + 1] = { "unbind", keys }
+    if record.fail_unbind then
+      error("unbind refused: " .. keys, 2)
+    end
     kill_chord(keys)
   end
 
@@ -129,7 +180,13 @@ local function build_hl(record, options)
     record.notifications[#record.notifications + 1] = spec
   end
   function hl.get_loaded_plugins()
-    return options.plugin_loaded and { { name = "hyprzoom" } } or {}
+    return record.plugin_listed and { { name = "hyprzoom" } } or {}
+  end
+  -- hl.on: remember the handlers; tests fire them through host.emit.
+  function hl.on(event, handler)
+    record.handlers[event] = record.handlers[event] or {}
+    table.insert(record.handlers[event], handler)
+    return { remove = function() end }
   end
   function hl.version()
     return "0.56.2-stub"
@@ -194,6 +251,16 @@ function M.new(options)
 
   function host.getenv(name)
     return host.env[name]
+  end
+  -- set_plugin: change which plugin state the fake compositor reports.
+  function host.set_plugin(state)
+    M.set_plugin(host.record, state)
+  end
+  -- emit: run every handler registered for a Hyprland event, like the compositor would.
+  function host.emit(event)
+    for _, handler in ipairs(host.record.handlers[event] or {}) do
+      handler()
+    end
   end
   function host.log(message)
     host.logs[#host.logs + 1] = message

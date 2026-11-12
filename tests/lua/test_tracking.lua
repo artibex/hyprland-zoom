@@ -51,15 +51,40 @@ T.case("edge_margin is 0 for modes without a margin", function()
   T.eq(tracking.resolve(settings_for("follow"), true).edge_margin, 0.0)
 end)
 
-T.case("apply sets cursor options and pre-sets the plugin keys even when it is not loaded yet", function()
-  -- Verified on 0.56.2: the plugin values apply when the plugin loads later.
+T.case("apply never sets plugin keys while the plugin is absent (R-P1a-01)", function()
+  -- Hyprland 0.56 records a config error for an unknown key; the fake models exactly that.
   local host = stub_host.new()
-  local resolved, problem = tracking.apply(host, settings_for("centered"))
+  local resolved, problem = tracking.apply(host, settings_for("margin"))
   T.eq(problem, nil)
   T.eq(resolved.plugin_loaded, false)
-  T.eq(host.record.config["cursor.zoom_detached_camera"], false)
-  T.eq(host.record.config["cursor.zoom_rigid"], true)
-  T.eq(host.record.config["plugin.hyprzoom.enabled"], false)
+  T.eq(host.record.config["cursor.zoom_detached_camera"], true)
+  T.eq(host.record.config["cursor.zoom_rigid"], false)
+  -- No plugin option was even attempted, so the compositor shows no error bar.
+  T.eq(host.record.config_errors, {})
+  T.eq(host.record.config["plugin.hyprzoom.enabled"], nil)
+end)
+
+T.case("a plugin that is listed but already lost its config values counts as absent", function()
+  -- Seen while a plugin unloads: still listed, options already gone.
+  local host = stub_host.new({ plugin_loaded = true })
+  host.set_plugin({ listed = true, config = false })
+  T.eq(tracking.plugin_loaded(host), false)
+  local _, problem = tracking.apply(host, settings_for("margin"))
+  T.eq(problem, nil)
+  T.eq(host.record.config_errors, {})
+end)
+
+T.case("a plugin loaded later is picked up and an unloaded one leaves no config error", function()
+  -- Engine first, plugin later, plugin gone again: the three states of the nested test.
+  local host = stub_host.new()
+  tracking.apply(host, settings_for("margin", 0.3))
+  host.set_plugin({ listed = true, config = true })
+  local resolved = tracking.apply(host, settings_for("margin", 0.3))
+  T.eq(resolved.effective, "margin")
+  T.eq(host.record.config["plugin.hyprzoom.edge_margin"], 0.3)
+  host.set_plugin({ listed = false, config = false })
+  T.eq(tracking.apply(host, settings_for("margin", 0.3)).effective, "edge")
+  T.eq(host.record.config_errors, {})
 end)
 
 T.case("apply pushes margin and enabled to the plugin when it is loaded", function()

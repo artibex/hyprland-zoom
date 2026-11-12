@@ -1,4 +1,4 @@
--- filter.lua — colour filters (E7): generate a GLSL screen shader from templates and apply it.
+-- filter.lua — color filters (E7): generate a GLSL screen shader from templates and apply it.
 -- Constants are baked into the shader text (screen shaders get no config uniforms); the file name
 -- carries a content hash so Hyprland reloads the shader whenever any setting changes.
 
@@ -8,6 +8,7 @@ local M = {}
 -- Helpers shared by all engine modules and the state-file reader/writer.
 local util = require("hyprland-zoom.util")
 local state = require("hyprland-zoom.state")
+local options = require("hyprland-zoom.options")
 
 -- Required first line of every generated shader (Hyprland refuses anything else, silently).
 local SHADER_VERSION_LINE = "#version 300 es"
@@ -213,12 +214,8 @@ end
 -- Args:    host platform adapter; path string ("" disables the shader)
 -- Returns: true; or nil, error text
 local function set_screen_shader(host, path)
-  -- Protected so a failing option never breaks a bind callback.
-  local applied, problem = pcall(host.hl.config, { decoration = { screen_shader = path } })
-  if not applied then
-    return nil, tostring(problem)
-  end
-  return true
+  -- The option setter never raises, so a failing option cannot break a bind callback.
+  return options.set(host, { decoration = { screen_shader = path } })
 end
 
 -- restore_user_shader — switch our shader off and put the user's own back.

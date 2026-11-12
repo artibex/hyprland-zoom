@@ -6,6 +6,7 @@ local M = {}
 
 -- Helpers shared by all engine modules.
 local util = require("hyprland-zoom.util")
+local options = require("hyprland-zoom.options")
 
 -- Two zoom levels closer than this count as "the same level" (float32 noise is ~1e-7).
 M.SAME_LEVEL_TOLERANCE = 1e-3
@@ -66,22 +67,26 @@ end
 -- Returns: new zoom number, new saved zoom number or nil
 function M.reset_target(current, saved, settings)
   -- Remember the level we leave so a following toggle can return to it.
+  return settings.ZOOM_RESET, M.remember_target(current, saved, settings)
+end
+
+-- M.remember_target — decide what the toggle should remember after leaving a level.
+-- Args:    current number (the level being left); saved number or nil; settings effective
+-- Returns: the level to remember: `current` when it is a real zoom, otherwise `saved`
+function M.remember_target(current, saved, settings)
+  -- The reset level is not worth coming back to; keep what was remembered before.
   if util.is_near(current, settings.ZOOM_RESET, M.SAME_LEVEL_TOLERANCE) then
-    return settings.ZOOM_RESET, saved
+    return saved
   end
-  return settings.ZOOM_RESET, current
+  return current
 end
 
 -- M.apply_level — hand a zoom level to Hyprland.
 -- Args:    host platform adapter; level number
 -- Returns: true; or nil, error text
 function M.apply_level(host, level)
-  -- hl.config raises on bad keys; keep the engine alive and report instead.
-  local applied, problem = pcall(host.hl.config, { cursor = { zoom_factor = level } })
-  if not applied then
-    return nil, tostring(problem)
-  end
-  return true
+  -- The option setter reports a problem instead of recording a config error.
+  return options.set(host, { cursor = { zoom_factor = level } })
 end
 
 -- M.read_applied_level — read the zoom level Hyprland currently holds.
@@ -108,17 +113,14 @@ function M.apply_rendering(host, settings)
     bezier = "default",
   })
   -- Smoothing off means "disable anti-aliasing" for crisp pixels.
-  local configured, config_problem = pcall(host.hl.config, {
+  local configured, config_problem = options.set(host, {
     cursor = { zoom_disable_aa = not settings.ZOOM_SMOOTH_IMAGES },
   })
   if not animated then
     return nil, tostring(animation_problem)
   end
-  if not configured then
-    -- Report the first failure; the other option may be fine.
-    return nil, tostring(config_problem)
-  end
-  return true
+  -- Report the first failure; the other option may be fine.
+  return configured, config_problem
 end
 
 return M

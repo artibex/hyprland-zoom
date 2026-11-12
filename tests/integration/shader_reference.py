@@ -5,9 +5,6 @@ formulas, so a typo in a GLSL template shows up as a pixel mismatch.
 Colours are tuples of three floats in 0..1 unless a function says otherwise.
 """
 
-# colorsys gives HLS conversions, which are the HSL maths of the smart-invert shader.
-import colorsys
-
 # Rec. 709 luma weights, identical to LUMA_WEIGHTS in src/shaders/base.glsl.
 LUMA_WEIGHTS = (0.2126, 0.7152, 0.0722)
 
@@ -27,6 +24,12 @@ CVD_MATRICES = {
                     (0.004733, 0.691367, 0.303900)),
                    ((1.0, 0.0, 0.7), (0.0, 1.0, 0.7), (0.0, 0.0, 0.0))),
 }
+
+# Constants of the smart-invert mirror map (see filter-smart-invert.glsl): the WCAG 2.x flare
+# term, the map's constant (1 + flare) * flare and the peak below which a colour counts as black.
+WCAG_FLARE = 0.05
+MIRROR_PRODUCT = (1.0 + WCAG_FLARE) * WCAG_FLARE
+BLACK_PEAK = 1e-6
 
 # Default adjustment values; they equal the schema defaults of the FILTER_* keys.
 DEFAULT_ADJUSTMENTS = {"intensity": 1.0, "contrast": 1.0, "brightness": 0.0, "saturation": 1.0}
@@ -93,18 +96,90 @@ def daltonize(colour, name):
     return tuple(channel ** (1.0 / DISPLAY_GAMMA) for channel in corrected)
 
 
+def srgb_to_linear(channel):
+    """Decode one sRGB channel (IEC 61966-2-1) into linear light.
+
+    Args:
+        channel: encoded value in 0..1.
+
+    Returns:
+        Linear-light value in 0..1.
+    """
+    # Linear toe below 0.04045, power curve above it (srgb_to_linear in filter-smart-invert).
+    if channel <= 0.04045:
+        return channel / 12.92
+    return ((channel + 0.055) / 1.055) ** 2.4
+
+
+def linear_to_srgb(channel):
+    """Encode one linear-light channel as sRGB.
+
+    Args:
+        channel: linear value (clamped into 0..1).
+
+    Returns:
+        Encoded value in 0..1.
+    """
+    # The two pieces of the sRGB curve, inverted.
+    bounded = clamp01(channel)
+    if bounded <= 0.0031308:
+        return bounded * 12.92
+    return 1.055 * bounded ** (1.0 / 2.4) - 0.055
+
+
+def relative_luminance(colour):
+    """WCAG 2.x relative luminance of an sRGB colour.
+
+    Args:
+        colour: (r, g, b) floats in 0..1, gamma-encoded.
+
+    Returns:
+        Luminance Y in 0..1.
+    """
+    # Weighted sum of the linear-light channels (the same weights as the shaders' luma).
+    return luma(tuple(srgb_to_linear(channel) for channel in colour))
+
+
+def contrast_ratio(first, second):
+    """WCAG 2.x contrast ratio of two sRGB colours.
+
+    Args:
+        first: (r, g, b) floats in 0..1.
+        second: (r, g, b) floats in 0..1.
+
+    Returns:
+        A ratio between 1 and 21.
+    """
+    # (lighter + 0.05) / (darker + 0.05), independent of the argument order.
+    lighter, darker = sorted((relative_luminance(first), relative_luminance(second)),
+                             reverse=True)
+    return (lighter + WCAG_FLARE) / (darker + WCAG_FLARE)
+
+
 def smart_invert(colour):
-    """Invert the HSL lightness, keep hue and saturation.
+    """Mirror the relative luminance (WCAG contrast preserved), keep the colour direction.
 
     Args:
         colour: (r, g, b) floats in 0..1.
 
     Returns:
-        The "dark mode" colour.
+        The "dark mode" colour; the formulas are those of src/shaders/filter-smart-invert.glsl.
     """
-    # colorsys returns hue, lightness, saturation (HLS order).
-    hue, lightness, saturation = colorsys.rgb_to_hls(*colour)
-    return colorsys.hls_to_rgb(hue, 1.0 - lightness, saturation)
+    # Work in linear light, where luminance is a plain weighted sum.
+    linear = tuple(srgb_to_linear(channel) for channel in colour)
+    luminance = luma(linear)
+    mirrored = MIRROR_PRODUCT / (luminance + WCAG_FLARE) - WCAG_FLARE
+    peak = max(linear)
+    # Black has no colour direction: it becomes the mirrored grey.
+    if peak < BLACK_PEAK:
+        return (linear_to_srgb(mirrored),) * 3
+    # Scale to the new luminance, capped so the brightest channel stays displayable.
+    scale = min(mirrored / luminance, 1.0 / peak)
+    scaled_luminance = scale * luminance
+    # Luminance the scale could not reach is added as white, which stays inside the gamut.
+    white_share = clamp01((mirrored - scaled_luminance) / max(1.0 - scaled_luminance, 1e-6))
+    return tuple(linear_to_srgb((1.0 - white_share) * scale * channel + white_share)
+                 for channel in linear)
 
 
 def smoothstep(low, high, value):

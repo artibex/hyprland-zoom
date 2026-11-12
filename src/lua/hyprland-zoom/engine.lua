@@ -1,5 +1,6 @@
 -- engine.lua — the runtime session: settings, persistent store and all state-changing operations.
--- api.lua exposes these as the global HyprZoom; nothing in here formats strings for users.
+-- api.lua exposes these as the global HyprZoom; only report_problem and filter_action build
+-- user-visible text, everything else returns values.
 -- All functions take the session explicitly (params in, results out; no module-level state).
 
 -- The module table returned to callers.
@@ -7,7 +8,9 @@ local M = {}
 
 -- Engine modules.
 local util = require("hyprland-zoom.util")
+local options = require("hyprland-zoom.options")
 local schema_module = require("hyprland-zoom.schema")
+-- Config files and the persistent state file.
 local config = require("hyprland-zoom.config")
 local state = require("hyprland-zoom.state")
 -- Zoom step maths and Hyprland zoom options.
@@ -15,19 +18,30 @@ local zoom = require("hyprland-zoom.zoom")
 local tracking = require("hyprland-zoom.tracking")
 local filter = require("hyprland-zoom.filter")
 local binds = require("hyprland-zoom.binds")
+-- Foreign-bind detection (reads other tools' bind files once).
+local collisions = require("hyprland-zoom.collisions")
 
 -- A preview that is not refreshed for this many seconds ends itself (UI crashed or closed).
 M.PREVIEW_TIMEOUT_SECONDS = 300
 -- Zoom of an unzoomed screen; the persisted state of a fresh session starts here.
 local UNZOOMED = 1.0
+-- Hyprland's animation speed unit: a `speed` of 1 lasts this many milliseconds.
+local ANIMATION_UNIT_MS = 100
+-- Extra wait after the zoom-out animation before the filter is released.
+local FILTER_RELEASE_MARGIN_MS = 100
 
 -- M.new_session — create the session table.
 -- Args:    host platform adapter; layout {schema_path, shader_directory}; store persistent table
 -- Returns: session table
 function M.new_session(host, layout, store)
   -- `store` outlives re-runs of the entry file inside one Lua state; everything else is rebuilt.
-  return { host = host, layout = layout, store = store, warnings = {}, overrides = nil,
-    state_directory = state.directory(host), actions = {} }
+  local session = { host = host, layout = layout, store = store, warnings = {},
+    bind_warnings = {}, overrides = nil, state_directory = state.directory(host), actions = {} }
+  -- Event handlers registered once per Lua state find the newest session through this getter.
+  store.current_session = function()
+    return session
+  end
+  return session
 end
 
 -- report_problem — log a problem and notify the user once per distinct message.
@@ -53,6 +67,20 @@ function M.effective_settings(session)
     return session.settings
   end
   return session.effective
+end
+
+-- M.all_warnings — the config warnings plus the current bind warnings.
+-- Args:    session table
+-- Returns: array of strings (a new array; the session's lists are not exposed)
+function M.all_warnings(session)
+  local all = {}
+  -- Config warnings change only on reload; bind warnings are rebuilt on every apply (R-P1a-06).
+  for _, list in ipairs({ session.warnings, session.bind_warnings }) do
+    for _, warning in ipairs(list) do
+      all[#all + 1] = warning
+    end
+  end
+  return all
 end
 
 -- load_settings — read the schema and the config files into the session.
@@ -161,6 +189,17 @@ function M.sync_filter(session)
   return result
 end
 
+-- sync_with_compositor — adopt a zoom level someone else set (another script, Omarchy).
+-- Args:    session table
+-- Returns: nothing
+local function sync_with_compositor(session)
+  -- Float32 storage differs from our double by ~1e-7; only real differences count.
+  local applied = zoom.read_applied_level(session.host)
+  if applied and not util.is_near(applied, session.store.zoom, zoom.SAME_LEVEL_TOLERANCE) then
+    session.store.zoom = applied
+  end
+end
+
 -- apply_options — push rendering, scroll delay (E2) and camera behaviour (E5) to Hyprland.
 -- Args:    session table; effective settings table
 -- Returns: array of problem strings
@@ -169,13 +208,15 @@ local function apply_options(session, effective)
   local problems = {}
   local _, rendering_problem = zoom.apply_rendering(host, effective)
   -- The scroll delay is THE fix for dropped notches (E2): Hyprland's default is 300 ms.
-  local delay_ok, delay_problem = pcall(host.hl.config,
+  local _, delay_problem = options.set(host,
     { binds = { scroll_event_delay = effective.SCROLL_EVENT_DELAY_MS } })
   local resolved, tracking_problem = tracking.apply(host, effective)
   session.tracking = resolved
+  -- Remember which plugin state the options were applied for (see M.refresh_plugin_state).
+  session.store.plugin_seen = resolved.plugin_loaded
   -- Collect only real problems, keeping the list free of nil holes.
   util.append_present(problems, rendering_problem)
-  util.append_present(problems, (not delay_ok) and tostring(delay_problem) or nil)
+  util.append_present(problems, delay_problem)
   util.append_present(problems, tracking_problem)
   return problems
 end
@@ -195,25 +236,32 @@ local function apply_binds(session, effective)
     store.bind_signature = signature
   end
   binds.ensure_settings_window_rule(host, store)
-  for _, warning in ipairs(plan.warnings) do
-    -- Bind warnings join the config warnings for HyprZoom.warnings().
-    session.warnings[#session.warnings + 1] = warning
+  -- Rebuilt from scratch on every apply, so repeated previews never pile up duplicates.
+  session.bind_warnings = plan.warnings
+  for _, warning in ipairs(collisions.find(plan, store.foreign_chords)) do
+    session.bind_warnings[#session.bind_warnings + 1] = warning
   end
   return problems
 end
 
 -- M.apply_all — push every setting to Hyprland (also the reload path).
--- Args:    session table
+-- Args:    session table; adopt_live_zoom boolean (true: another tool's zoom wins over ours)
 -- Returns: array of problem strings (empty when all went well)
-function M.apply_all(session)
+-- Notes:   Only the first start after a Hyprland reload re-asserts the stored zoom (the reload
+--          reset the compositor's value, E10); every later apply adopts the live value first.
+function M.apply_all(session, adopt_live_zoom)
   local store = session.store
+  -- Someone else may have changed the zoom since our last apply.
+  if adopt_live_zoom then
+    sync_with_compositor(session)
+  end
   local effective = M.effective_settings(session)
   local problems = apply_options(session, effective)
+  -- Option problems and bind problems are reported together.
   for _, problem in ipairs(apply_binds(session, effective)) do
-    -- Collect the bind problems with the option problems.
     problems[#problems + 1] = problem
   end
-  -- Re-assert the zoom level (a compositor reload reset it) and the filter.
+  -- Re-assert the zoom level and the filter.
   zoom.apply_level(session.host, store.zoom)
   M.sync_filter(session)
   persist(session)
@@ -246,7 +294,7 @@ end
 -- Returns: nothing
 local function initialise_runtime(session)
   local store = session.store
-  -- A re-run in the same Lua state keeps the live values.
+  -- A re-run in the same Lua state keeps the values it already holds.
   if store.zoom ~= nil then
     return
   end
@@ -257,7 +305,7 @@ local function initialise_runtime(session)
   store.zoom = UNZOOMED
   store.filter_active = settings.FILTER_ACTIVE
   if not settings.ZOOM_RESTORE_ON_RELOAD then
-    -- Re-run in the same Lua state: live values stay.
+    -- Restore disabled: zoom stays at 1.0 and the filter keeps its configured default.
     return
   end
   if saved.zoom then
@@ -301,9 +349,14 @@ function M.start(session)
     -- Create the private state directory (load time only: it spawns mkdir).
     session.host.ensure_dir(session.state_directory)
   end
+  -- A store that already holds a zoom means the entry file ran again in the same Lua state.
+  local is_rerun = session.store.zoom ~= nil
   initialise_runtime(session)
   adopt_config_changes(session)
-  M.apply_all(session)
+  -- Foreign binds are read once, here at load time (it lists a directory); later applies reuse it.
+  session.store.foreign_chords = collisions.scan(session.host)
+  M.apply_all(session, is_rerun)
+  M.watch_plugin_events(session)
   -- Stale shader files of earlier sessions go now; listing a directory is load-time only.
   if session.state_directory then
     filter.remove_stale_files(session.host, session.state_directory, session.store.shader_path)
@@ -322,19 +375,42 @@ function M.reload(session)
   adopt_config_changes(session)
   -- Overrides must be re-validated against the new settings.
   recompute_effective(session)
-  M.apply_all(session)
+  M.apply_all(session, true)
   return true
 end
 
--- sync_with_compositor — adopt a zoom level someone else set (another script, Omarchy).
--- Args:    session table
+-- filter_release_delay — how long the filter stays after a zoom-out starts.
+-- Args:    settings effective settings
+-- Returns: milliseconds (the zoom-out animation plus a margin)
+local function filter_release_delay(settings)
+  return math.floor(settings.ZOOM_ANIMATION_SPEED * ANIMATION_UNIT_MS) + FILTER_RELEASE_MARGIN_MS
+end
+
+-- update_filter_for_zoom — switch the shader when a zoom change crosses the 1.0 boundary.
+-- Args:    session table; was_wanted boolean; now_wanted boolean; effective settings
 -- Returns: nothing
-local function sync_with_compositor(session)
-  -- Float32 storage differs from our double by ~1e-7; only real differences count.
-  local applied = zoom.read_applied_level(session.host)
-  if applied and not util.is_near(applied, session.store.zoom, zoom.SAME_LEVEL_TOLERANCE) then
-    session.store.zoom = applied
+-- Notes:   Zooming in applies the shader at once. Zooming out keeps it until the animation has
+--          finished (R-P1a-12); a newer zoom change cancels the pending release.
+local function update_filter_for_zoom(session, was_wanted, now_wanted, effective)
+  local store = session.store
+  -- Every level change invalidates a release that is still waiting.
+  store.filter_release_ticket = (store.filter_release_ticket or 0) + 1
+  local ticket = store.filter_release_ticket
+  if was_wanted == now_wanted then
+    return
   end
+  -- Zooming in (or a change that leaves the filter as it is) needs the shader right away.
+  if now_wanted then
+    M.sync_filter(session)
+    return
+  end
+  -- Zooming out: wait for the animation, then release the shader.
+  session.host.after(filter_release_delay(effective), function()
+    -- Only the newest level change may release the filter.
+    if store.filter_release_ticket == ticket then
+      M.sync_filter(session)
+    end
+  end)
 end
 
 -- M.set_level — make a zoom level current (apply, filter boundary, persist).
@@ -352,9 +428,8 @@ function M.set_level(session, level)
     report_problem(session, "zoom: " .. problem)
   end
   -- Only the 1.0 boundary needs a shader change; skip the work on every other notch.
-  if filter.is_wanted(effective, active, level) ~= was_wanted then
-    M.sync_filter(session)
-  end
+  update_filter_for_zoom(session, was_wanted, filter.is_wanted(effective, active, level),
+    effective)
   persist(session)
   return level
 end
@@ -370,11 +445,19 @@ function M.change_zoom(session, notches, direction)
 end
 
 -- M.set_zoom — go to an absolute level (clamped to the configured range).
--- Args:    session table; level number
+-- Args:    session table; level number; remember boolean or nil (nil and true remember)
 -- Returns: the new zoom level
-function M.set_zoom(session, level)
+-- Notes:   remember=false is a transient zoom (a UI test zoom): saved_zoom stays untouched.
+--          Otherwise the level that is left becomes the toggle's memory, like `reset` does.
+function M.set_zoom(session, level, remember)
   sync_with_compositor(session)
-  return M.set_level(session, zoom.clamp_level(level, M.effective_settings(session)))
+  local store = session.store
+  local effective = M.effective_settings(session)
+  -- A transient zoom leaves the toggle's memory alone.
+  if remember ~= false then
+    store.saved_zoom = zoom.remember_target(store.zoom, store.saved_zoom, effective)
+  end
+  return M.set_level(session, zoom.clamp_level(level, effective))
 end
 
 -- M.toggle_zoom — switch between the reset level and the last level.
@@ -481,7 +564,7 @@ function M.preview(session, overrides)
   -- Commit only after the whole override set validated.
   session.overrides, session.effective = combined, merged
   schedule_preview_expiry(session)
-  M.apply_all(session)
+  M.apply_all(session, true)
   return true
 end
 
@@ -493,9 +576,58 @@ function M.preview_end(session)
   session.overrides, session.effective = nil, nil
   load_settings(session)
   adopt_config_changes(session)
-  M.apply_all(session)
-  -- Nothing else to do: the preview is applied.
+  -- The saved configuration is back in force; the preview itself is gone.
+  M.apply_all(session, true)
   return true
+end
+
+-- M.refresh_plugin_state — re-apply everything when the plugin appeared or vanished.
+-- Args:    session table
+-- Returns: true when it re-applied, false when nothing changed
+-- Notes:   Cheap when nothing changed: two reads. Fixes `plugin=missing` after a late plugin load
+--          (R-P1a-03) even if no Lua-state restart follows.
+function M.refresh_plugin_state(session)
+  local loaded = tracking.plugin_loaded(session.host)
+  -- Same plugin state as at the last apply: nothing to do.
+  if loaded == session.store.plugin_seen then
+    return false
+  end
+  M.apply_all(session, true)
+  return true
+end
+
+-- on_plugin_event — body of the start/reload event handlers.
+-- Args:    store persistent table (gives access to the newest session)
+-- Returns: nothing
+local function on_plugin_event(store)
+  -- The newest session of this Lua state answers; an engine that failed to start stays inert.
+  local session = store.current_session()
+  if not session.ready then
+    return
+  end
+  -- An event callback must never raise into Hyprland.
+  local refreshed, problem = pcall(M.refresh_plugin_state, session)
+  if not refreshed then
+    report_problem(session, "plugin refresh: " .. tostring(problem))
+  end
+end
+
+-- M.watch_plugin_events — register the events that can change the plugin state.
+-- Args:    session table
+-- Returns: nothing
+-- Notes:   One registration per Lua state; the handlers look the newest session up in the store.
+function M.watch_plugin_events(session)
+  local store = session.store
+  if store.events_registered or not session.host.hl.on then
+    return
+  end
+  -- Registered once: a second entry run in the same Lua state must not stack handlers.
+  store.events_registered = true
+  for _, event in ipairs({ "hyprland.start", "config.reloaded" }) do
+    pcall(session.host.hl.on, event, function()
+      on_plugin_event(store)
+    end)
+  end
 end
 
 return M

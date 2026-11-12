@@ -12,6 +12,8 @@ local util = require("hyprland-zoom.util")
 M.SETTINGS_APP_ID = "io.github.artibex.HyprlandZoom"
 -- Command the settings key starts.
 local SETTINGS_COMMAND = "hyprland-zoom-settings"
+-- What `tostring` says about a bind handle whose bind was removed by someone else (0.56.2).
+local EXPIRED_HANDLE_TEXT = "HL.Keybind(expired)"
 -- Hyprland's name for the middle mouse button.
 local MIDDLE_MOUSE_KEY = "mouse:274"
 -- Modifiers of Omarchy's group-cycling scroll binds that collide with the default scroll zoom.
@@ -26,7 +28,7 @@ local KEY_BINDS = {
   { setting = "BIND_KEY_IN", action = "zoom_in", repeating = true, description = "Zoom in" },
   { setting = "BIND_KEY_OUT", action = "zoom_out", repeating = true, description = "Zoom out" },
   { setting = "BIND_KEY_TOGGLE", action = "toggle", description = "Toggle zoom" },
-  { setting = "BIND_KEY_FILTER", action = "filter_toggle", description = "Toggle colour filter" },
+  { setting = "BIND_KEY_FILTER", action = "filter_toggle", description = "Toggle color filter" },
   { setting = "BIND_KEY_SETTINGS", action = "open_settings", description = "Open settings" },
 }
 
@@ -44,12 +46,13 @@ end
 -- Returns: true when equal
 local function same_modifiers(first, second)
   -- Canonical order means element-wise comparison is enough.
+  -- Different lengths cannot be equal.
   if #first ~= #second then
     return false
   end
   for index, name in ipairs(first) do
+    -- The first differing element decides.
     if second[index] ~= name then
-      -- Different lengths cannot be equal.
       return false
     end
   end
@@ -149,13 +152,26 @@ function M.signature(plan)
   return table.concat(parts, ";")
 end
 
+-- is_expired — test whether Hyprland already dropped the bind behind a handle.
+-- Args:    handle value returned by hl.bind
+-- Returns: true when the handle is expired or not a handle at all
+-- Notes:   tostring() is the only method that is safe on an expired handle in 0.56.2; every
+--          other call, remove() included, dereferences a null pointer and kills Hyprland.
+local function is_expired(handle)
+  return handle == nil or tostring(handle) == EXPIRED_HANDLE_TEXT
+end
+
 -- remove_previous_binds — drop the handles of an earlier apply.
 -- Args:    store persistent table holding `bind_handles`
 -- Returns: nothing
+-- Notes:   Anything that unbinds one of our chords (user rebind, another script, unbind all)
+--          expires the handle; calling remove() on it would crash the compositor.
 local function remove_previous_binds(store)
-  -- remove() on an expired handle is a harmless no-op; protect anyway.
   for _, handle in ipairs(store.bind_handles or {}) do
-    pcall(handle.remove, handle)
+    -- Only live handles may be removed; an expired one has nothing left to remove.
+    if not is_expired(handle) then
+      pcall(handle.remove, handle)
+    end
   end
   store.bind_handles = {}
 end

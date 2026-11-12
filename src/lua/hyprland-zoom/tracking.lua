@@ -5,8 +5,13 @@
 -- The module table returned to callers.
 local M = {}
 
+-- Helpers shared by all engine modules and the safe option setter.
+local options = require("hyprland-zoom.options")
+
 -- Name under which the plugin registers itself with Hyprland.
 local PLUGIN_NAME = "hyprzoom"
+-- A config value only the loaded plugin owns; its presence proves the plugin's variables exist.
+local PLUGIN_PROBE_KEY = "plugin.hyprzoom.edge_margin"
 -- Hyprland's built-in edge margin (a 0.9 camera box leaves 5 % per side).
 M.NATIVE_EDGE_MARGIN = 0.05
 
@@ -22,10 +27,10 @@ local CAMERA_OPTIONS = {
   follow = { detached = false, rigid = false },
 }
 
--- M.plugin_loaded — detect the hyprzoom plugin.
+-- listed_as_plugin — test whether Hyprland lists a plugin named hyprzoom.
 -- Args:    host platform adapter
--- Returns: true when Hyprland reports a plugin named hyprzoom
-function M.plugin_loaded(host)
+-- Returns: true when the name is in `hl.get_loaded_plugins()`
+local function listed_as_plugin(host)
   -- Older or stripped builds may lack the call; treat that as "no plugin".
   local listed, plugins = pcall(host.hl.get_loaded_plugins)
   if not listed or type(plugins) ~= "table" then
@@ -38,6 +43,15 @@ function M.plugin_loaded(host)
     end
   end
   return false
+end
+
+-- M.plugin_loaded — detect a hyprzoom plugin that is loaded AND has its config values.
+-- Args:    host platform adapter
+-- Returns: true when the plugin is listed and `plugin.hyprzoom.edge_margin` exists
+-- Notes:   Both checks are needed: while a plugin unloads it can still be listed after its
+--          config values are gone, and setting a missing value is a config error (R-P1a-01).
+function M.plugin_loaded(host)
+  return listed_as_plugin(host) and options.is_known(host, PLUGIN_PROBE_KEY)
 end
 
 -- M.resolve — decide the effective tracking behaviour (pure).
@@ -69,19 +83,19 @@ function M.resolve(settings, plugin_loaded)
 end
 
 -- apply_plugin_options — push margin and enabled flag to the plugin's own config values.
--- Args:    host platform adapter; resolved table from M.resolve
+-- Args:    host platform adapter; resolved table from M.resolve (with `plugin_loaded`)
 -- Returns: true; or nil, error text
+-- Notes:   Does nothing without the plugin: its keys do not exist then and setting them would
+--          put an error bar on every config reload.
 local function apply_plugin_options(host, resolved)
+  if not resolved.plugin_loaded then
+    return true
+  end
   -- Outside margin mode the plugin runs disabled with the native margin value.
   local margin = resolved.plugin_enabled and resolved.edge_margin or M.NATIVE_EDGE_MARGIN
-  local applied, problem = pcall(host.hl.config, {
+  return options.set(host, {
     plugin = { hyprzoom = { edge_margin = margin, enabled = resolved.plugin_enabled } },
   })
-  if not applied then
-    return nil, tostring(problem)
-  end
-  -- Plugin options accepted (or queued until the plugin loads).
-  return true
 end
 
 -- M.apply — set the Hyprland camera options (and the plugin's, when present).
@@ -92,18 +106,15 @@ function M.apply(host, settings)
   local resolved = M.resolve(settings, plugin_loaded)
   resolved.plugin_loaded = plugin_loaded
   -- Native options first: they decide how the camera behaves with or without the plugin.
-  local applied, problem = pcall(host.hl.config, {
+  local applied, problem = options.set(host, {
     cursor = { zoom_detached_camera = resolved.detached, zoom_rigid = resolved.rigid },
   })
   if not applied then
-    return resolved, tostring(problem)
+    return resolved, problem
   end
-  -- Verified on 0.56.2 (P3): plugin keys may be set before the plugin loads; they apply at load.
+  -- The plugin's own options only exist while the plugin is loaded.
   local _, plugin_problem = apply_plugin_options(host, resolved)
-  if plugin_problem then
-    return resolved, plugin_problem
-  end
-  return resolved, nil
+  return resolved, plugin_problem
 end
 
 return M

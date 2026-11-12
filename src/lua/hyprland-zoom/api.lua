@@ -82,15 +82,19 @@ local function zoom_out_result(session, notches)
 end
 
 -- set_zoom_result — body of HyprZoom.set_zoom.
--- Args:    session table; factor number
+-- Args:    session table; factor number; remember boolean or nil (false = transient zoom)
 -- Returns: result string
-local function set_zoom_result(session, factor)
+local function set_zoom_result(session, factor, remember)
   -- Only finite numbers are accepted; anything else is a caller bug.
   local finite = type(factor) == "number" and factor == factor and math.abs(factor) < math.huge
   if not finite then
     return "error=zoom factor must be a finite number"
   end
-  return format_zoom(engine.set_zoom(session, factor))
+  -- The flag is optional, but a wrong type is a caller bug as well.
+  if remember ~= nil and type(remember) ~= "boolean" then
+    return "error=remember must be true or false"
+  end
+  return format_zoom(engine.set_zoom(session, factor, remember))
 end
 
 -- toggle_result — body of HyprZoom.toggle.
@@ -128,7 +132,7 @@ local function reload_result(session)
   if not reloaded then
     return "error=" .. problem
   end
-  return "ok warnings=" .. #session.warnings
+  return "ok warnings=" .. #engine.all_warnings(session)
 end
 
 -- preview_result — body of HyprZoom.preview.
@@ -154,10 +158,11 @@ end
 -- Args:    session table
 -- Returns: the configuration warnings, one per line, or "none"
 local function warnings_result(session)
-  if #session.warnings == 0 then
+  local warnings = engine.all_warnings(session)
+  if #warnings == 0 then
     return "none"
   end
-  return table.concat(session.warnings, "\n")
+  return table.concat(warnings, "\n")
 end
 
 -- Public function name -> body; each body is wrapped by `guarded` when installed.

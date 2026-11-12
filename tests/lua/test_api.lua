@@ -191,8 +191,34 @@ T.case("FILTER_ONLY_WHEN_ZOOMED switches the shader at the 1.0 boundary", functi
   api.zoom_in()
   T.truthy(status_of(api).filter_shader ~= "none")
   api.reset()
+  -- Zoom-out: the shader stays while the animation runs, then the timer releases it (R-P1a-12).
+  T.truthy(status_of(api).filter_shader ~= "none")
+  host.run_timers()
   T.eq(status_of(api).filter_shader, "none")
   T.eq(host.record.config["decoration.screen_shader"], "")
+end)
+
+T.case("a zoom-in during the zoom-out animation cancels the pending filter release", function()
+  -- Out, in again, then the first timer fires: the filter must still be on.
+  local api, host = new_engine({ user_config = "FILTER_ONLY_WHEN_ZOOMED=on\n" })
+  api.filter("on")
+  api.zoom_in()
+  api.reset()
+  api.zoom_in()
+  host.run_timers()
+  T.truthy(status_of(api).filter_shader ~= "none")
+end)
+
+T.case("the filter release waits for the zoom animation (speed x 100 ms + margin)", function()
+  -- ZOOM_ANIMATION_SPEED 2.0 lasts 200 ms; the release is scheduled a little later.
+  local api, host = new_engine({
+    user_config = "FILTER_ONLY_WHEN_ZOOMED=on\nZOOM_ANIMATION_SPEED=2.00\n" })
+  api.filter("on")
+  api.zoom_in()
+  host.timers = {}
+  api.reset()
+  T.eq(#host.timers, 1)
+  T.eq(host.timers[1].milliseconds, 300)
 end)
 
 T.case("a configured FILTER_ACTIVE=on starts with the filter applied", function()

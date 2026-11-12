@@ -3,7 +3,8 @@
 
 Sub-commands:
   make <out.png> [width height]      write the test pattern (four colour quadrants + stripes)
-  check <shot.png> <filter> [K=V..]  compare the four quadrant samples with the prediction
+  check <shot.png> <filter> [K=V..]  compare the six sample points with the prediction
+  contrast <shot.png>                print the link/page contrast; exit 1 below WCAG 4.5
   stripe <shot.png> <y>              print the width of the widest white stripe on row y
 Exit status 0 means success; `check` exits 1 and prints the mismatches otherwise.
 """
@@ -18,8 +19,18 @@ import shader_reference
 
 # Quadrant colours of the test pattern: top-left, top-right, bottom-left, bottom-right.
 QUADRANT_COLOURS = ((200, 40, 40), (40, 200, 40), (40, 40, 200), (200, 200, 40))
-# Pixels to sample (away from the screen centre where the pointer sits), one per quadrant.
-SAMPLE_POINTS = ((100, 100), (1100, 100), (100, 600), (1100, 600))
+# Link-blue text patch on a white page patch at the top centre (readability check, R-P1a-08).
+LINK_BLUE = (0, 0, 238)
+PAGE_WHITE = (255, 255, 255)
+PAGE_BOX = (560, 0, 720, 90)
+LINK_BOX = (600, 20, 680, 70)
+# Pixels to sample (away from the screen centre where the pointer sits): one per quadrant, then
+# the white page and the blue link patch, each with the colour the pattern paints there.
+SAMPLES = (((100, 100), QUADRANT_COLOURS[0]), ((1100, 100), QUADRANT_COLOURS[1]),
+           ((100, 600), QUADRANT_COLOURS[2]), ((1100, 600), QUADRANT_COLOURS[3]),
+           ((570, 10), PAGE_WHITE), ((640, 45), LINK_BLUE))
+# Smallest WCAG contrast the smart-invert filter must keep between link text and page.
+MINIMUM_TEXT_CONTRAST = 4.5
 # Stripes: 40 px white every 160 px inside this band of rows.
 STRIPE_PERIOD, STRIPE_WIDTH, STRIPE_TOP, STRIPE_BOTTOM = 160, 40, 300, 420
 # Largest accepted difference per channel (8-bit rounding in the GPU and in grim).
@@ -153,6 +164,22 @@ def pixel_at(image, x, y):
     return tuple(rows[min(max(y, 0), height - 1)][column:column + 3])
 
 
+def inside_box(x, y, box):
+    """Test whether a pixel lies inside a rectangle.
+
+    Args:
+        x: column.
+        y: row.
+        box: (left, top, right, bottom), right and bottom exclusive.
+
+    Returns:
+        True when the pixel is inside.
+    """
+    # Half-open on the right and bottom edge, like pixel coverage.
+    left, top, right, bottom = box
+    return left <= x < right and top <= y < bottom
+
+
 def pattern_colour(x, y, width, height):
     """Colour of the test pattern at one position.
 
@@ -165,6 +192,11 @@ def pattern_colour(x, y, width, height):
     Returns:
         (r, g, b) integers.
     """
+    # The readability patches sit on top of everything else.
+    if inside_box(x, y, LINK_BOX):
+        return LINK_BLUE
+    if inside_box(x, y, PAGE_BOX):
+        return PAGE_WHITE
     # White stripes inside the band, otherwise the quadrant colour.
     in_band = STRIPE_TOP < y < STRIPE_BOTTOM
     if in_band and (x // STRIPE_WIDTH) % (STRIPE_PERIOD // STRIPE_WIDTH) == 0:
@@ -204,7 +236,7 @@ def parse_adjustments(arguments):
 
 
 def check_filter(path, filter_name, adjustments):
-    """Compare the four sample pixels of a screenshot with the filter prediction.
+    """Compare the sample pixels of a screenshot with the filter prediction.
 
     Args:
         path: screenshot PNG path.
@@ -217,7 +249,7 @@ def check_filter(path, filter_name, adjustments):
     # One sample per quadrant; the expectation starts from the known pattern colour.
     image = read_png(path)
     problems = []
-    for (x, y), source in zip(SAMPLE_POINTS, QUADRANT_COLOURS):
+    for (x, y), source in SAMPLES:
         expected = shader_reference.expected_colour(filter_name, source, adjustments)
         # Compare the worst channel difference with the tolerance.
         actual = pixel_at(image, x, y)
@@ -225,6 +257,24 @@ def check_filter(path, filter_name, adjustments):
             problems.append(f"({x},{y}) {filter_name}: expected {expected}, got {actual}")
     # An empty list means every sample matched.
     return problems
+
+
+def check_text_contrast(path):
+    """Measure the WCAG contrast between the link patch and the page patch on screen.
+
+    Args:
+        path: screenshot PNG path.
+
+    Returns:
+        The contrast ratio of the two displayed colours.
+    """
+    # The two sample points of the readability patches are the last two entries.
+    image = read_png(path)
+    page = pixel_at(image, *SAMPLES[-2][0])
+    link = pixel_at(image, *SAMPLES[-1][0])
+    # contrast_ratio works on 0..1 floats.
+    return shader_reference.contrast_ratio(tuple(c / 255.0 for c in link),
+                                           tuple(c / 255.0 for c in page))
 
 
 def stripe_width(path, y):
@@ -267,6 +317,11 @@ def main(arguments):
         print("\n".join(problems) if problems else "OK")
         # Non-zero status lets the shell test count a failure.
         return 1 if problems else 0
+    # Readability: the link must keep its contrast against the page under the filter.
+    if command == "contrast":
+        ratio = check_text_contrast(arguments[1])
+        print(f"{ratio:.2f}")
+        return 0 if ratio >= MINIMUM_TEXT_CONTRAST else 1
     if command == "stripe":
         print(stripe_width(arguments[1], int(arguments[2])))
         # Measuring never fails; the caller compares the number.
