@@ -24,7 +24,7 @@ or disabled in the settings window (*Shortcuts*) and with `zoomctl set`.
 | Zoom in / out | `SUPER + ALT` + scroll wheel (down zooms in) | `BIND_SCROLL`, `BIND_SCROLL_DIRECTION` |
 | Zoom in / out, keyboard (repeats when held) | `SUPER + ALT + I` / `SUPER + ALT + O` | `BIND_KEY_IN`, `BIND_KEY_OUT` |
 | Toggle zoom (reset ⇄ last level) | `SUPER + ALT + 0` or `SUPER + ALT` + middle click | `BIND_KEY_TOGGLE`, `BIND_MOUSE_TOGGLE` |
-| Colour filter on / off | `SUPER + ALT + C` | `BIND_KEY_FILTER` |
+| Color filter on / off | `SUPER + ALT + C` | `BIND_KEY_FILTER` |
 | Open the settings window | `SUPER + ALT + Z` | `BIND_KEY_SETTINGS` |
 
 The defaults were checked against Omarchy's own binds. Two of Omarchy's binds would still fire
@@ -41,7 +41,7 @@ modifiers instead.
 ## Fast scrolling
 
 Every scroll notch zooms. Hyprland normally ignores further wheel events for 300 ms after a
-bind fired and hands them to the window underneath, which made the old behaviour "one notch
+bind fired and hands them to the window underneath, which made the old behavior "one notch
 zooms, the next one scrolls the page". hyprland-zoom sets that delay to 0
 (`SCROLL_EVENT_DELAY_MS`). Zooming also happens inside the compositor, so scrolling quickly
 cannot lose steps.
@@ -59,7 +59,7 @@ Open it with `SUPER + ALT + Z`, `zoomctl ui` or from your application launcher
 |---|---|
 | **Zoom** | step size and mode, minimum / maximum / reset level, animation speed, smooth images |
 | **Pointer tracking** | how the view follows the pointer, and the margin |
-| **Colour filters** | which filter, its strength, contrast, brightness and saturation |
+| **Color filters** | which filter, its strength, contrast, brightness and saturation |
 | **Shortcuts** | modifier keys, keys, scroll direction, Omarchy takeover |
 | **Advanced** | keep zoom on config reload, scroll event delay, *Restore defaults…* |
 
@@ -77,7 +77,7 @@ and a message explains why. If no engine is loaded, a banner offers *Set up*.
 
 How the zoomed view reacts to the mouse pointer (`ZOOM_TRACKING`):
 
-| Mode | Behaviour |
+| Mode | Behavior |
 |---|---|
 | `centered` (default) | The pointer stays in the middle of the zoomed view. |
 | `edge` | The view stands still until the pointer reaches the edge (Hyprland's own 5 % margin). |
@@ -87,18 +87,18 @@ How the zoomed view reacts to the mouse pointer (`ZOOM_TRACKING`):
 Without the plugin `margin` behaves like `edge`; `zoomctl status` shows the mode that is
 really in effect (`tracking_effective`) and the settings window says so next to the slider.
 
-## Colour filters
+## Color filters
 
 Filters are applied to the final image, after the zoom. `SUPER + ALT + C` switches the chosen
 filter on and off; `zoomctl filter smart-invert` picks one and switches it on.
 
 | Filter | Use |
 |---|---|
-| `smart-invert` (default) | Dark mode for bright screens; colours stay recognisable. |
-| `invert` | Swaps light and dark, colours become their opposites. |
-| `grayscale`, `grayscale-invert` | Removes colour; the second also swaps light and dark. |
+| `smart-invert` (default) | Dark mode for bright screens; colors stay recognizable. |
+| `invert` | Swaps light and dark, colors become their opposites. |
+| `grayscale`, `grayscale-invert` | Removes color; the second also swaps light and dark. |
 | `high-contrast` | Pushes light and dark apart for readability. |
-| `protanopia`, `deuteranopia`, `tritanopia` | Colour transforms for red-, green- and blue-weak colour vision. |
+| `protanopia`, `deuteranopia`, `tritanopia` | Color transforms for red-, green- and blue-weak color vision. |
 
 Fine-tune with *Filter strength* (blend with the original image), *Contrast*, *Brightness* and
 *Saturation*. *Only while zoomed* applies the filter only while the screen is magnified. A
@@ -145,6 +145,6 @@ hl.bind("SUPER + ALT + M", hl.dsp.exec_cmd("zoomctl zoom 3"))
 ## Legacy hyprlang configs
 
 Hyprland before 0.55, or a `hyprland.conf` without Lua, works in a reduced mode: the same
-shortcuts and settings, but no colour filters and no live preview, and every action starts a
+shortcuts and settings, but no color filters and no live preview, and every action starts a
 `zoomctl` process. `zoomctl setup` adds a `source =` line instead of the Lua include.
 `zoomctl doctor` tells you which mode you are in.

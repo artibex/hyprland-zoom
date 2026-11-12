@@ -4,14 +4,14 @@
 
 Accessibility zoom for [Hyprland](https://hyprland.org), modelled on the screen zoom of macOS:
 hold a key and scroll to magnify the screen, keep the pointer where you want it in the zoomed
-view, switch on a colour filter, and try every setting out live in a settings window.
+view, switch on a color filter, and try every setting out live in a settings window.
 
 - **Zoom on every scroll notch.** Fast scrolling zooms smoothly; no notch is swallowed or
   passed on to the window underneath.
 - **Pointer tracking.** The pointer stays in the middle of the view, or the view only moves
   when the pointer gets close to the edge — with a margin you can adjust.
-- **Colour filters.** Invert, dark-mode style *smart invert*, grayscale, high contrast and
-  colour-blindness transforms, each with strength, contrast, brightness and saturation.
+- **Color filters.** Invert, dark-mode style *smart invert*, grayscale, high contrast and
+  color-blindness transforms, each with strength, contrast, brightness and saturation.
 - **Settings app with a *Try it* bar.** Change a value, feel the difference at once.
 - **Made for Arch and Omarchy.** Installs as a package, avoids Omarchy's key bindings, and
   keeps your zoom when Omarchy reloads the configuration.
@@ -19,7 +19,7 @@ view, switch on a colour filter, and try every setting out live in a settings wi
 <!-- Screenshots (to be added): -->
 <!-- 1. Settings window, Zoom page (light and dark) -->
 <!-- 2. Settings window, Pointer tracking page with the margin slider -->
-<!-- 3. Settings window, Colour filters page while a preview runs (Keep / Revert) -->
+<!-- 3. Settings window, Color filters page while a preview runs (Keep / Revert) -->
 <!-- 4. Desktop zoomed to 3x, before and after smart invert -->
 <!-- 5. Shortcuts page with the keycap strip -->
 
@@ -27,7 +27,7 @@ view, switch on a colour filter, and try every setting out live in a settings wi
 
 - Arch Linux or a derivative (Omarchy works out of the box).
 - **Hyprland 0.55 or newer with the Lua config** (`~/.config/hypr/hyprland.lua`). Older or
-  hyprlang-only setups get a reduced fallback: zoom and tracking work, colour filters and live
+  hyprlang-only setups get a reduced fallback: zoom and tracking work, color filters and live
   preview do not.
 - Installed automatically with the package: `python`, `python-gobject`, `gtk4`, `libadwaita`,
   `bash`, `util-linux`.
@@ -67,7 +67,7 @@ The package hook runs `zoomctl setup` for you when it can. Now hold `SUPER + ALT
 | Zoom in / out | `SUPER + ALT` + scroll wheel (scroll down zooms in) |
 | Zoom in / out with the keyboard | `SUPER + ALT + I` / `SUPER + ALT + O` |
 | Toggle zoom (reset ⇄ last level) | `SUPER + ALT + 0` or `SUPER + ALT` + middle click |
-| Colour filter on / off | `SUPER + ALT + C` |
+| Color filter on / off | `SUPER + ALT + C` |
 | Open the settings window | `SUPER + ALT + Z` |
 
 Every key, the modifiers and the scroll direction can be changed in the settings window. See
@@ -79,18 +79,18 @@ Every key, the modifiers and the scroll direction can be changed in the settings
 
 *Settings → Pointer tracking*, or `zoomctl tracking <mode>`:
 
-| Mode | Behaviour |
+| Mode | Behavior |
 |---|---|
 | `centered` | The pointer stays in the middle of the zoomed view (default). |
 | `edge` | The view stands still until the pointer reaches the edge. |
 | `margin` | Like `edge`, with a protective margin you choose (needs the plugin). |
 | `follow` | The view slides proportionally with the pointer. |
 
-### Colour filters
+### Color filters
 
 `SUPER + ALT + C` switches the chosen filter on and off; pick the filter and fine-tune it under
-*Settings → Colour filters*. *Smart invert* turns bright screens dark but keeps colours
-recognisable.
+*Settings → Color filters*. *Smart invert* turns bright screens dark but keeps colors
+recognizable.
 
 ### Fast scrolling
 
@@ -102,7 +102,7 @@ to the window underneath, see [troubleshooting](docs/troubleshooting.md).
 Without it, `margin` tracking behaves like `edge` (Hyprland's fixed 5 % margin) and the
 settings window says so. With it you get a margin slider from 0.00 to 0.45. The plugin is built
 on your machine by `hyprpm` because plugins are tied to the exact Hyprland build; it supports
-Hyprland 0.56.x for now. Install steps, autostart and update behaviour:
+Hyprland 0.56.x for now. Install steps, autostart and update behavior:
 [docs/plugin.md](docs/plugin.md).
 
 ## Configure

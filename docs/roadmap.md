@@ -26,7 +26,7 @@ This page lists what is still open. Nothing here is promised for a date.
   itself has not been run in automation.
 - **HiDPI and fractional scaling**: the plugin's camera maths multiplies by the monitor scale
   like Hyprland does, but only scale 1 was measured live.
-- **Screen sharing**: colour filters use Hyprland's screen shader, which PipeWire/portal
+- **Screen sharing**: color filters use Hyprland's screen shader, which PipeWire/portal
   capture probably ignores. Needs a decision: document, or offer a share-safe mode.
 - **Key capture on non-Latin layouts**: the settings window only reads the first keyboard
   layout when recording a shortcut.
@@ -38,6 +38,6 @@ This page lists what is still open. Nothing here is promised for a date.
 ## Completed in 0.2
 
 Lua engine inside Hyprland, atomic fast scrolling, settings schema as single source, settings
-app with live try-out, tracking modes and the optional margin plugin, eight colour filters,
+app with live try-out, tracking modes and the optional margin plugin, eight color filters,
 Omarchy-aware shortcuts, zoom restore across reloads, CLI rewrite, packaging, CI and generated
 technical documentation.

@@ -7,7 +7,7 @@ All notable changes to hyprland-zoom. The format follows
 ## [0.2.0] - unreleased
 
 A rewrite around an engine that runs inside Hyprland, a settings app, pointer tracking modes
-and colour filters.
+and color filters.
 
 ### Added
 - **Settings window** (`hyprland-zoom-settings`, `zoomctl ui`, `SUPER + ALT + Z`): GTK 4 /
@@ -17,7 +17,7 @@ and colour filters.
   protective margin, needs the optional plugin) and `follow`.
 - **Optional `hyprzoom` plugin** (`plugin/`, built by `hyprpm`): makes the edge margin of
   Hyprland's zoom camera configurable (0.00–0.45). Hyprland 0.56.x only.
-- **Colour filters**: invert, smart invert, grayscale, inverted grayscale, high contrast and
+- **Color filters**: invert, smart invert, grayscale, inverted grayscale, high contrast and
   protanopia / deuteranopia / tritanopia transforms, with strength, contrast, brightness and
   saturation; optionally only while zoomed.
 - **Lua engine** (`hyprland-zoom.lua`) loaded from `hyprland.lua`: zoom steps are atomic

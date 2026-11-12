@@ -96,17 +96,17 @@ FILTER=smart-invert
 | `ZOOM_TRACKING` | `tracking` | `centered` | centered, edge, margin, follow | **Pointer tracking.** centered: the pointer stays in the middle of the zoomed view. edge: the view moves when the pointer reaches the edge. margin: like edge with an adjustable margin (needs the hyprzoom plugin). follow: the view slides proportionally with the pointer. |
 | `ZOOM_EDGE_MARGIN` | `edge-margin` | `0.15` | 0.00 to 0.45 | **Edge margin.** Width of the protective margin per side as a fraction of the zoomed view. Used by the margin mode. |
 
-### Colour filters
+### Color filters
 
 | Key | `zoomctl set` name | Default | Allowed values | Meaning |
 |---|---|---|---|---|
-| `FILTER` | `filter` | `smart-invert` | invert, smart-invert, grayscale, grayscale-invert, high-contrast, protanopia, deuteranopia, tritanopia | **Colour filter.** Which filter the filter shortcut switches on. smart-invert turns bright screens dark but keeps colours recognisable. |
-| `FILTER_ACTIVE` | `filter-active` | `off` | on, off | **Filter active.** Whether the colour filter is currently switched on. |
-| `FILTER_ONLY_WHEN_ZOOMED` | `filter-only-when-zoomed` | `off` | on, off | **Only while zoomed.** Apply the colour filter only while the screen is zoomed in. |
+| `FILTER` | `filter` | `smart-invert` | invert, smart-invert, grayscale, grayscale-invert, high-contrast, protanopia, deuteranopia, tritanopia | **Color filter.** Which filter the filter shortcut switches on. smart-invert turns bright screens dark but keeps colors recognizable. |
+| `FILTER_ACTIVE` | `filter-active` | `off` | on, off | **Filter active.** Whether the color filter is currently switched on. |
+| `FILTER_ONLY_WHEN_ZOOMED` | `filter-only-when-zoomed` | `off` | on, off | **Only while zoomed.** Apply the color filter only while the screen is zoomed in. |
 | `FILTER_INTENSITY` | `filter-intensity` | `1.00` | 0.00 to 1.00 | **Filter strength.** Blend between the original image (0.00) and the full filter (1.00). |
 | `FILTER_CONTRAST` | `filter-contrast` | `1.00` | 0.50 to 3.00 | **Contrast.** 1.00 keeps the contrast; higher values separate light and dark more strongly. |
 | `FILTER_BRIGHTNESS` | `filter-brightness` | `0.00` | -0.50 to 0.50 | **Brightness.** Shifts the overall brightness after the filter. |
-| `FILTER_SATURATION` | `filter-saturation` | `1.00` | 0.00 to 2.00 | **Saturation.** 0.00 removes colour, 1.00 keeps it, 2.00 doubles it. |
+| `FILTER_SATURATION` | `filter-saturation` | `1.00` | 0.00 to 2.00 | **Saturation.** 0.00 removes color, 1.00 keeps it, 2.00 doubles it. |
 
 ### Shortcuts
 
@@ -119,7 +119,7 @@ FILTER=smart-invert
 | `BIND_KEY_IN` | `bind-key-in` | `I` | a Hyprland key name, empty disables | **Zoom in key.** Key that zooms in (held down it repeats). Empty disables it. |
 | `BIND_KEY_OUT` | `bind-key-out` | `O` | a Hyprland key name, empty disables | **Zoom out key.** Key that zooms out (held down it repeats). Empty disables it. |
 | `BIND_KEY_TOGGLE` | `bind-key-toggle` | `0` | a Hyprland key name, empty disables | **Toggle zoom key.** Switches between the reset zoom and the last zoom level. |
-| `BIND_KEY_FILTER` | `bind-key-filter` | `C` | a Hyprland key name, empty disables | **Toggle filter key.** Switches the colour filter on and off. |
+| `BIND_KEY_FILTER` | `bind-key-filter` | `C` | a Hyprland key name, empty disables | **Toggle filter key.** Switches the color filter on and off. |
 | `BIND_KEY_SETTINGS` | `bind-key-settings` | `Z` | a Hyprland key name, empty disables | **Open settings key.** Opens the hyprland-zoom settings window. |
 | `BIND_TAKEOVER_OMARCHY` | `bind-takeover-omarchy` | `on` | on, off | **Take over Omarchy zoom keys.** Routes Omarchy's own zoom keys to hyprland-zoom and frees modifiers + scroll from Omarchy's group cycling. |
 

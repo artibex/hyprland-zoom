@@ -12,7 +12,7 @@ hyprland-zoom ships as one Arch package, `hyprland-zoom`, built from this reposi
 | `/usr/share/hyprland-zoom/lib/*.sh` | shell libraries of `zoomctl` |
 | `/usr/share/hyprland-zoom/hyprland-zoom.lua` | engine entry file, loaded from the user's `hyprland.lua` |
 | `/usr/share/hyprland-zoom/lua/hyprland-zoom/*.lua` | engine modules |
-| `/usr/share/hyprland-zoom/shaders/*.glsl` | colour-filter shader templates |
+| `/usr/share/hyprland-zoom/shaders/*.glsl` | color-filter shader templates |
 | `/usr/share/hyprland-zoom/settings.schema` | the single source of settings, ranges and defaults |
 | `/usr/share/hyprland-zoom/hyprland-bindings.lua` | shim for 0.1 installs (loads the engine) |
 | `/usr/share/hyprland-zoom/hyprland-bindings.conf` | binds for legacy hyprlang configs |

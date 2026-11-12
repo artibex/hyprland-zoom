@@ -18,7 +18,7 @@ END_MARKER = '<!-- END GENERATED SETTINGS -->'
 GROUP_TITLES = (
     ('zoom', 'Zoom'),
     ('tracking', 'Pointer tracking'),
-    ('filter', 'Colour filters'),
+    ('filter', 'Color filters'),
     ('shortcuts', 'Shortcuts'),
     ('advanced', 'Advanced'),
 )

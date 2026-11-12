@@ -16,7 +16,7 @@ line per check. Include its output and `zoomctl status` when you report a proble
 | Tracking `margin` behaves like `edge` | The `hyprzoom` plugin is not loaded | [plugin docs](plugin.md#troubleshooting) |
 | The plugin stopped working after a Hyprland update | Plugins are tied to one Hyprland build | `hyprpm update && hyprpm reload` |
 | The settings window does not open | Missing GTK pieces or running as root | [see below](#the-settings-window-does-not-open) |
-| `colour filters are not supported on the legacy config` | hyprlang config without the Lua engine | Use a Lua config (Hyprland 0.55+) and run `zoomctl setup` |
+| `color filters are not supported on the legacy config` | hyprlang config without the Lua engine | Use a Lua config (Hyprland 0.55+) and run `zoomctl setup` |
 | `Hyprland is not reachable` | `zoomctl` runs outside the session | Run it from a terminal inside Hyprland |
 
 ## One notch zooms, the next scrolls the window below
@@ -66,7 +66,7 @@ Omarchy binds `SUPER + ALT` + scroll to cycle through grouped windows, and `SUPE
 two, so only one zoom engine runs. Hyprland can remove a bind only together with **every** bind
 on the same key combination, including your own.
 
-- To keep Omarchy's behaviour, turn the takeover off and give hyprland-zoom other modifiers
+- To keep Omarchy's behavior, turn the takeover off and give hyprland-zoom other modifiers
   (*Shortcuts → Modifier keys*, for example `SUPER + CTRL`).
 - `zoomctl doctor` lists key combinations that are bound twice.
 - The 0.1 default keys `K`, `J`, `L` collided with Omarchy's tmux and layout binds; 0.2 uses
