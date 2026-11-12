@@ -7,8 +7,20 @@ The model tests need only the first two; the widget tests add the fake CLI and B
 import json
 import os
 import sys
+import tempfile
+import time
+import unittest
+import warnings
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
+from unittest import mock
+
+# PyGObject's event-loop shim trips a Python 3.14 deprecation on every main-loop turn; it is
+# upstream noise (gi/events.py) and would bury real warnings.
+warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"gi\.events")
+
+# Seconds a test may wait for an asynchronous reaction before it counts as failed.
+WAIT_SECONDS = 8.0
 
 # Repository root and the directory that holds the settings package.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -138,10 +150,78 @@ def environment_for_fake(state_dir: Path) -> dict:
     Returns:
         Variables to set (``ZOOMCTL_BIN``, ``FAKE_ZOOMCTL_STATE``, schema location).
     """
-    # ZOOMCTL_SCHEMA tells the fake where the real schema is; the app reads it via the repo.
+    # The fake reads defaults and key order from the real schema file.
     return {
         "ZOOMCTL_BIN": str(FAKE_ZOOMCTL),
         "FAKE_ZOOMCTL_STATE": str(state_dir),
         "FAKE_ZOOMCTL_SCHEMA": str(SCHEMA_PATH),
-        "FAKE_ZOOMCTL_PYTHON": os.path.realpath(sys.executable),
     }
+
+
+def pump(condition: Callable[[], bool], timeout: float = WAIT_SECONDS) -> None:
+    """Run the default GLib main loop until a condition holds.
+
+    Args:
+        condition: Callable returning a truthy value when the wait is over.
+        timeout: Seconds before the wait fails the test.
+
+    Returns:
+        None.
+    """
+    from gi.repository import GLib
+
+    context = GLib.MainContext.default()
+    deadline = time.monotonic() + timeout
+    # Iterating the context delivers subprocess results, timers and idle callbacks.
+    while not condition():
+        if time.monotonic() > deadline:
+            raise AssertionError("timed out waiting for the GUI")
+        context.iteration(False)
+        # A short sleep keeps the polling loop from burning a CPU core.
+        time.sleep(0.003)
+
+
+def pump_for(seconds: float) -> None:
+    """Run the main loop for a fixed time.
+
+    Args:
+        seconds: Duration to keep iterating.
+
+    Returns:
+        None.
+    """
+    deadline = time.monotonic() + seconds
+    # A condition that only turns true at the deadline makes pump a timed loop.
+    pump(lambda: time.monotonic() > deadline, timeout=seconds + 2)
+
+
+class FakeZoomctlTestCase(unittest.TestCase):
+    """Base class: every test gets its own fake zoomctl state and a patched environment."""
+
+    def setUp(self) -> None:
+        """Create the state directory and point the environment at the fake.
+
+        Returns:
+            None.
+        """
+        # A private temp dir per test keeps call logs and stored settings isolated.
+        scratch = tempfile.TemporaryDirectory(prefix="hzoom-gui-")
+        self.addCleanup(scratch.cleanup)
+        self.fake = FakeZoomctl(Path(scratch.name) / "state")
+        # patch.dict restores the real environment after the test.
+        patcher = mock.patch.dict(os.environ, environment_for_fake(self.fake.state_dir))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def wait_for_calls(self, *prefix: str, count: int = 1) -> None:
+        """Wait until the fake saw enough calls that start with a prefix.
+
+        Args:
+            prefix: Leading argv words.
+            count: Number of matching calls to wait for.
+
+        Returns:
+            None.
+        """
+        # Subprocess results arrive through the main loop, so the loop must keep running.
+        pump(lambda: len(self.fake.calls_matching(*prefix)) >= count)

@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+"""Fake ``zoomctl`` for the GUI tests: logs argv, keeps a tiny stateful config and status.
+
+State lives in the directory named by FAKE_ZOOMCTL_STATE:
+  calls.jsonl     one JSON argv list per call
+  overrides.json  canned answers [{"match": [...argv prefix], "stdout", "stderr", "rc", "sleep"}]
+  config.json     user overrides written by ``set``
+  status.json     status fields (zoom, engine, ...) changed by ``zoom``/``setup``/``preview``
+"""
+
+# json stores state, os reads the environment, sys handles argv and exit codes.
+import json
+import os
+import sys
+import time
+
+# State directory and the real schema file (for defaults and key order).
+STATE_DIR = os.environ["FAKE_ZOOMCTL_STATE"]
+SCHEMA_PATH = os.environ["FAKE_ZOOMCTL_SCHEMA"]
+# Status the fake reports before any test changes it.
+DEFAULT_STATUS = {
+    "engine": "lua", "version": "0.2.0", "hyprland": "0.56.2", "zoom": "1.00",
+    "saved_zoom": "1.00", "tracking": "centered", "tracking_effective": "centered",
+    "edge_margin": "0.15", "plugin": "missing", "filter": "smart-invert",
+    "filter_active": "off", "filter_shader": "none", "scroll_event_delay_ms": "0",
+}
+
+
+def state_path(name):
+    """Build the path of a state file.
+
+    Args:
+        name: File name inside the state directory.
+
+    Returns:
+        The full path.
+    """
+    # All state files share one directory.
+    return os.path.join(STATE_DIR, name)
+
+
+def read_json(name, fallback):
+    """Read a JSON state file.
+
+    Args:
+        name: File name inside the state directory.
+        fallback: Value returned when the file does not exist.
+
+    Returns:
+        The parsed content or the fallback.
+    """
+    # A missing file is the normal "nothing recorded yet" case.
+    try:
+        with open(state_path(name), encoding="utf-8") as handle:
+            return json.load(handle)
+    except FileNotFoundError:
+        return fallback
+
+
+def write_json(name, content):
+    """Write a JSON state file.
+
+    Args:
+        name: File name inside the state directory.
+        content: JSON-serialisable value.
+
+    Returns:
+        None.
+    """
+    # Plain overwrite; the tests never run two fake calls that write the same file at once.
+    with open(state_path(name), "w", encoding="utf-8") as handle:
+        json.dump(content, handle)
+
+
+def schema_defaults():
+    """Read key order and defaults from the real schema.
+
+    Returns:
+        List of (key, default) pairs in schema order.
+    """
+    pairs = []
+    with open(SCHEMA_PATH, encoding="utf-8") as handle:
+        for line in handle:
+            # Comments and blank lines carry no setting.
+            if line.strip() and not line.startswith("#"):
+                fields = line.split("|")
+                pairs.append((fields[0], fields[2]))
+    return pairs
+
+
+def find_override(argv):
+    """Pick the canned answer with the longest matching argv prefix.
+
+    Args:
+        argv: Arguments after the program name.
+
+    Returns:
+        The override dict or None.
+    """
+    best = None
+    for entry in read_json("overrides.json", []):
+        prefix = entry["match"]
+        # Longest prefix wins so a specific answer beats a general one.
+        if argv[: len(prefix)] == prefix and (best is None or len(prefix) > len(best["match"])):
+            best = entry
+    return best
+
+
+def emit(stdout="", stderr="", code=0):
+    """Write the answer and exit.
+
+    Args:
+        stdout: Text for stdout.
+        stderr: Text for stderr.
+        code: Exit status.
+
+    Returns:
+        Never returns.
+    """
+    # Flushing before exit keeps stdout and stderr complete for the parent.
+    sys.stdout.write(stdout)
+    sys.stderr.write(stderr)
+    sys.stdout.flush()
+    sys.exit(code)
+
+
+def command_config():
+    """Print the effective configuration, schema order.
+
+    Returns:
+        Never returns.
+    """
+    overrides = read_json("config.json", {})
+    lines = [f"{key}={overrides.get(key, default)}" for key, default in schema_defaults()]
+    emit("\n".join(lines) + "\n")
+
+
+def command_status():
+    """Print the status porcelain.
+
+    Returns:
+        Never returns.
+    """
+    status = {**DEFAULT_STATUS, **read_json("status.json", {})}
+    emit("".join(f"{key}={value}\n" for key, value in status.items() if key != "preview"))
+
+
+def command_set(arguments):
+    """Store one setting.
+
+    Args:
+        arguments: ``[key, value]``.
+
+    Returns:
+        Never returns.
+    """
+    known = dict(schema_defaults())
+    key = arguments[0] if arguments else ""
+    # Unknown keys fail like the real CLI.
+    if key not in known or len(arguments) != 2:
+        emit(stderr=f"zoomctl: unknown key '{key}'\n", code=1)
+    overrides = read_json("config.json", {})
+    overrides[key] = arguments[1]
+    write_json("config.json", overrides)
+    emit()
+
+
+def command_zoom(arguments):
+    """Record the new zoom level in the status.
+
+    Args:
+        arguments: ``[factor]``.
+
+    Returns:
+        Never returns.
+    """
+    status = read_json("status.json", {})
+    status["zoom"] = arguments[0]
+    write_json("status.json", status)
+    emit()
+
+
+def command_preview(arguments):
+    """Record or clear the preview overrides.
+
+    Args:
+        arguments: ``["--end"]`` or ``KEY=VALUE`` pairs.
+
+    Returns:
+        Never returns.
+    """
+    status = read_json("status.json", {})
+    # Ending a preview forgets the overrides; starting one stores them for assertions.
+    if arguments == ["--end"]:
+        status.pop("preview", None)
+    else:
+        status["preview"] = " ".join(arguments)
+    write_json("status.json", status)
+    emit()
+
+
+def dispatch(argv):
+    """Run the built-in behaviour for a command.
+
+    Args:
+        argv: Arguments after the program name.
+
+    Returns:
+        Never returns.
+    """
+    command, rest = (argv[0] if argv else ""), argv[1:]
+    if command == "config":
+        command_config()
+    if command == "status":
+        command_status()
+    if command == "set":
+        command_set(rest)
+    if command == "zoom":
+        command_zoom(rest)
+    if command == "preview":
+        command_preview(rest)
+    if command == "reset-config":
+        # Deleting the overrides file is what the real command does.
+        write_json("config.json", {})
+        emit()
+    if command == "setup":
+        # A successful setup makes the engine available.
+        write_json("status.json", {**read_json("status.json", {}), "engine": "lua"})
+        emit("engine wired\n")
+    emit(stderr=f"zoomctl: unknown command '{command}'\n", code=2)
+
+
+def main():
+    """Log the call, apply an override if one matches, else run the built-in command.
+
+    Returns:
+        Never returns (exits through emit).
+    """
+    argv = sys.argv[1:]
+    # The call log lets tests assert exactly what the GUI asked for.
+    with open(state_path("calls.jsonl"), "a", encoding="utf-8") as log:
+        log.write(json.dumps(argv) + "\n")
+    override = find_override(argv)
+    if override is not None:
+        time.sleep(override.get("sleep", 0))
+        emit(override.get("stdout", ""), override.get("stderr", ""), override.get("rc", 0))
+    dispatch(argv)
+
+
+main()
