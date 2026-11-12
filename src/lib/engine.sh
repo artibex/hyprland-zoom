@@ -82,19 +82,40 @@ zoomctl_engine_require() {
   esac
 }
 
+# zoomctl_engine_query — evaluate a Lua expression in the loaded engine and print its answer.
+# Args:    $1 Lua expression such as "return HyprZoom.status()" (a fixed string of this code base)
+# Returns: 0 the engine answered; 1 no engine or no answer; stdout: the answer text
+# Globals: reads/writes ZOOMCTL_PROBE
+zoomctl_engine_query() {
+  local answer
+  zoomctl_hyprland_probe
+  # Only a loaded engine can answer; everything else is the caller's fallback.
+  [ "$ZOOMCTL_PROBE" = 'engine' ] || return 1
+  answer="$(hyprctl repl "$1" 2>/dev/null)" || return 1
+  # An empty answer is no answer.
+  [ -n "$answer" ] || return 1
+  printf '%s\n' "$answer"
+}
+
 # zoomctl_engine_status_lines — fetch the engine's own status (C6) when it is loaded.
 # Args:    none
 # Returns: 0 engine answered with status lines; 1 otherwise; stdout: KEY=VALUE lines
 # Globals: reads/writes ZOOMCTL_PROBE
 zoomctl_engine_status_lines() {
   local answer
-  zoomctl_hyprland_probe
-  # Only a loaded engine can answer; everything else is the caller's fallback.
-  [ "$ZOOMCTL_PROBE" = 'engine' ] || return 1
-  answer="$(hyprctl repl 'return HyprZoom.status()' 2>/dev/null)" || return 1
+  answer="$(zoomctl_engine_query 'return HyprZoom.status()')" || return 1
   # A well-formed answer starts with the engine key.
   [[ "$answer" == engine=* ]] || return 1
   printf '%s\n' "$answer"
+}
+
+# zoomctl_engine_warning_lines — fetch the engine's configuration warnings (one per line).
+# Args:    none
+# Returns: 0 engine answered; 1 no engine or no answer; stdout: warning lines, or "none"
+# Globals: reads/writes ZOOMCTL_PROBE
+zoomctl_engine_warning_lines() {
+  # The engine collects what its validator rejected while loading the configuration.
+  zoomctl_engine_query 'return HyprZoom.warnings()'
 }
 
 # zoomctl_engine_checked_pair — resolve and validate one KEY=VALUE pair of user input.
@@ -178,6 +199,7 @@ zoomctl_engine_reload() {
   # Say plainly what could not be applied, but never fail a successful save.
   case "$ZOOMCTL_PROBE" in
     engine) zoomctl_warn "saved, but the engine rejected the reload: $engine_answer" ;;
+    # Nothing to talk to: the file is saved and will be read at the next start.
     unreachable) zoomctl_warn "saved; Hyprland is not reachable, so nothing was applied live" ;;
     *)
       # Without the engine the basic options are re-applied through the fallback.

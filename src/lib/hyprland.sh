@@ -63,14 +63,20 @@ zoomctl_hyprland_option_number() {
 # Returns: 0 found; 1 unavailable; stdout: for example 0.56.2
 # Globals: none
 zoomctl_hyprland_version() {
-  local answer version
-  command -v hyprctl >/dev/null 2>&1 || return 1
-  # Without a running instance hyprctl fails; report the version as unavailable.
-  answer="$(hyprctl -j version 2>/dev/null)" || return 1
-  version="$(printf '%s\n' "$answer" | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1)"
-  # An answer without a version field counts as unavailable.
-  [ -n "$version" ] || return 1
-  printf '%s\n' "$version"
+  # The shared wiring block owns the parsing (the pacman hook needs it too).
+  zoomctl_hyprctl_version_text
+}
+
+# zoomctl_hyprland_live_zoom — the current zoom as canonical text, wherever it can be read.
+# Args:    none
+# Returns: 0 always; stdout: for example 1.50 (live value, else state file, else 1.00)
+# Globals: none
+zoomctl_hyprland_live_zoom() {
+  local zoom_text
+  # Hyprland is the source of truth; the C5 state file only covers a missing hyprctl answer.
+  zoom_text="$(zoomctl_hyprland_option_number cursor:zoom_factor)" ||
+    zoom_text="$(zoomctl_state_read zoom)" || zoom_text='1.00'
+  zoomctl_format_float "$zoom_text" || printf '1.00\n'
 }
 
 # zoomctl_hyprland_plugin_loaded — test whether a Hyprland plugin is loaded.

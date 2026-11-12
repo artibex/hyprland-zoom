@@ -2,10 +2,6 @@
 # doctor.sh — `zoomctl doctor`: human-readable health checks (contract C4).
 # Each check prints "[ok|info|warn|FAIL] text" lines and returns 1 only for a real failure.
 
-# Oldest Hyprland release with the Lua config manager the engine needs.
-ZOOMCTL_MIN_HYPRLAND_MAJOR=0
-ZOOMCTL_MIN_HYPRLAND_MINOR=55
-
 # zoomctl_doctor_line — print one check result line.
 # Args:    $1 level (ok|info|warn|FAIL); $2 text
 # Returns: 0 always; stdout: the formatted line
@@ -33,7 +29,7 @@ zoomctl_modifier_mask() {
 # Returns: 0 reachable; 1 not reachable
 # Globals: reads/writes ZOOMCTL_PROBE
 zoomctl_doctor_hyprland() {
-  local version major minor
+  local version
   zoomctl_hyprland_probe
   # Nothing else can be checked without a compositor.
   if [ "$ZOOMCTL_PROBE" = 'unreachable' ]; then
@@ -45,10 +41,8 @@ zoomctl_doctor_hyprland() {
     zoomctl_doctor_line warn "Hyprland version unknown"
     return 0
   }
-  # Only the first two version components matter for the 0.55 threshold.
-  IFS=. read -r major minor _ <<< "$version"
-  if (( major > ZOOMCTL_MIN_HYPRLAND_MAJOR || minor >= ZOOMCTL_MIN_HYPRLAND_MINOR )); then
-    # A new enough release ships the Lua config manager.
+  # A new enough release ships the Lua config manager the engine needs.
+  if zoomctl_hyprland_supports_lua "$version"; then
     zoomctl_doctor_line ok "Hyprland $version"
   else
     zoomctl_doctor_line warn "Hyprland $version is older than 0.55: legacy fallback only"
@@ -63,13 +57,14 @@ zoomctl_doctor_engine() {
   # Each probe state has its own explanation and fix.
   case "$ZOOMCTL_PROBE" in
     engine) zoomctl_doctor_line ok "Lua config, engine loaded" ;;
+    hyprlang) zoomctl_doctor_line warn "legacy hyprlang config: no filters or live preview" ;;
+    # A missing engine is the one failure users can fix themselves.
     lua-no-engine)
       zoomctl_doctor_line FAIL \
         "Lua config, but the engine is not loaded: run 'zoomctl setup', reload Hyprland"
-      # A missing engine is the one failure users can fix themselves.
       return 1 ;;
-    hyprlang) zoomctl_doctor_line warn "legacy hyprlang config: no filters or live preview" ;;
   esac
+  # Every other state is fine or not applicable.
   return 0
 }
 
@@ -120,6 +115,50 @@ zoomctl_doctor_config() {
   done <<< "$problems"
 }
 
+# zoomctl_doctor_engine_warnings — list what the loaded engine says about the configuration.
+# Args:    none
+# Returns: 0 always
+# Globals: reads ZOOMCTL_PROBE
+zoomctl_doctor_engine_warnings() {
+  local warning_text line
+  # Only a loaded engine can report; the other states were explained by the engine check.
+  [ "$ZOOMCTL_PROBE" = 'engine' ] || return 0
+  warning_text="$(zoomctl_engine_warning_lines)" || {
+    # Say so instead of silently skipping the check.
+    zoomctl_doctor_line warn "the engine did not answer HyprZoom.warnings()"
+    return 0
+  }
+  # `none` is the engine's word for a clean configuration.
+  if [ "$warning_text" = 'none' ]; then
+    zoomctl_doctor_line ok "engine reports no configuration warnings"
+    return 0
+  fi
+  # Every engine warning becomes its own line.
+  while IFS= read -r line; do
+    zoomctl_doctor_line warn "engine: $line"
+  done <<< "$warning_text"
+}
+
+# zoomctl_doctor_tools — check the command line tools zoomctl itself depends on.
+# Args:    none
+# Returns: 0 all required tools present; 1 flock is missing
+# Globals: none
+zoomctl_doctor_tools() {
+  local tool_name status=0
+  # flock serialises writers (config, legacy zoom); without it zoomctl cannot run safely.
+  if ! command -v flock >/dev/null 2>&1; then
+    zoomctl_doctor_line FAIL "flock (util-linux) is missing: settings cannot be saved safely"
+    status=1
+  fi
+  # awk and getent only serve diagnostics and the install hook, so a gap is a warning.
+  for tool_name in awk getent; do
+    command -v "$tool_name" >/dev/null 2>&1 ||
+      zoomctl_doctor_line warn "$tool_name is missing: some checks and sudo setup need it"
+  done
+  # Only a missing flock is a failure; the others were warnings above.
+  return "$status"
+}
+
 # zoomctl_doctor_plugin — report the optional hyprzoom plugin.
 # Args:    none
 # Returns: 0 always
@@ -166,7 +205,7 @@ AWK
 # Returns: 0 always
 # Globals: reads ZOOMCTL_VALUE
 zoomctl_doctor_binds() {
-  local mask keys clash
+  local mask keys clash clash_line
   [ "$ZOOMCTL_PROBE" = 'unreachable' ] && return 0
   # Hyprland reports binds by modifier bit mask, not by name.
   mask="$(zoomctl_modifier_mask "${ZOOMCTL_VALUE[BIND_MODIFIERS]}")"
@@ -222,16 +261,21 @@ zoomctl_doctor_settings_app() {
 zoomctl_command_doctor() {
   local failures=0
   [ "$#" -eq 0 ] || { zoomctl_usage_error "doctor takes no arguments"; return 2; }
-  # The binds and scroll checks read the effective settings.
+  # A missing or broken schema is reported by the loader itself (stderr), never swallowed.
+  zoomctl_schema_load || return 1
   # Config warnings are reported by their own check below, not twice.
   zoomctl_config_load 2>/dev/null || return 1
-  printf 'zoomctl %s\n' "$ZOOMCTL_VERSION"
-  # Order: environment, engine, wiring, settings, extras.
+  printf 'zoomctl %s\n' "$(zoomctl_version)"
+  # Order: tools, environment, engine, wiring, settings, extras.
+  zoomctl_doctor_tools || failures=$((failures + 1))
   zoomctl_doctor_hyprland || failures=$((failures + 1))
   zoomctl_doctor_engine || failures=$((failures + 1))
+  # The wiring check is the one that says whether the engine loads next time.
   zoomctl_doctor_include || failures=$((failures + 1))
   # The remaining checks are informational and never fail the run.
   zoomctl_doctor_config
+  zoomctl_doctor_engine_warnings
+  # Optional extras and conflicts come last.
   zoomctl_doctor_plugin
   zoomctl_doctor_binds
   # The live scroll delay shows whether the engine applied decision E2.

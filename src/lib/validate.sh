@@ -3,8 +3,8 @@
 # Every validator prints the canonical value on success, so callers get validation and
 # normalisation in one step. Nothing that fails here may reach a config file or Lua code.
 
-# Modifier names the Hyprland binds understand, in canonical output order.
-ZOOMCTL_MODIFIER_ORDER=(SUPER SHIFT CTRL ALT)
+# Modifier names the Hyprland binds understand, in the engine's canonical output order.
+ZOOMCTL_MODIFIER_ORDER=(SUPER CTRL ALT SHIFT)
 
 # zoomctl_validate_float — validate a decimal against a "min..max" constraint.
 # Args:    $1 constraint like 0.01..2.00; $2 value

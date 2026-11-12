@@ -9,9 +9,14 @@ TEST_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 # The CLI under test and its schema.
 ZOOMCTL="$TEST_ROOT/src/zoomctl"
 SCHEMA_FILE="$TEST_ROOT/config/settings.schema"
+# Every zoomctl library in load order (src/zoomctl sources the same list).
+ZOOMCTL_LIBS=(common math validate schema config userconfig template state hyprland
+  engine legacy setup status doctor cmd_zoom cmd_config cmd_info)
 # Counters shared by all assertions of one suite.
 TEST_PASS=0
 TEST_FAIL=0
+# Extra VAR=VALUE pairs applied to the next run_zoomctl / run_lib_function calls (set, then clear).
+ZC_EXTRA_ENV=()
 
 # test_init — create the sandbox and announce the suite.
 # Args:    $1 suite name
@@ -28,6 +33,7 @@ test_init() {
   mkdir -p "$FAKE_DIR" "$TEST_SANDBOX/bin" "$TEST_SANDBOX/home" "$TEST_SANDBOX/share" \
     "$TEST_SANDBOX/etc" "$TEST_SANDBOX/run"
   ln -s "$TEST_ROOT/tests/fixtures/fake-hyprctl" "$TEST_SANDBOX/bin/hyprctl"
+  ln -s "$TEST_ROOT/tests/fixtures/fake-hyprland" "$TEST_SANDBOX/bin/Hyprland"
   test_build_env
   printf '== %s\n' "$1"
 }
@@ -43,6 +49,7 @@ test_build_env() {
     "ZOOMCTL_USER_CONFIG=$ZC_USER_CONFIG" "ZOOMCTL_SYSTEM_CONFIG=$ZC_SYSTEM_CONFIG"
     "ZOOMCTL_STATE_DIR=$ZC_STATE_DIR" "ZOOMCTL_SHARE_DIR=$TEST_SANDBOX/share"
     "ZOOMCTL_TARGET_HOME=$TEST_SANDBOX/home" "FAKE_HYPRCTL_DIR=$FAKE_DIR"
+    "ZOOMCTL_SETTINGS_BIN=$TEST_SANDBOX/bin/hyprland-zoom-settings"
     "LC_ALL=C" "TERM=dumb")
 }
 
@@ -68,21 +75,41 @@ load_zoomctl_libs() {
   unset HYPRLAND_INSTANCE_SIGNATURE
   export ZOOMCTL_STATE_DIR="$ZC_STATE_DIR" ZOOMCTL_SHARE_DIR="$TEST_SANDBOX/share"
   export ZOOMCTL_SCRIPT_DIR="$TEST_ROOT/src" XDG_RUNTIME_DIR="$TEST_SANDBOX/run"
-  for library in common math validate schema config userconfig template state hyprland \
-    engine legacy setup status doctor cmd_zoom cmd_config cmd_info; do
+  # The libraries expect the byte-wise locale src/zoomctl sets before sourcing them.
+  export LC_ALL=C
+  for library in "${ZOOMCTL_LIBS[@]}"; do
     # shellcheck source=/dev/null
     source "$TEST_ROOT/src/lib/$library.sh"
   done
 }
 
+# run_lib_function — call one library function in a clean sandboxed bash process.
+# Args:    $1.. function name and its arguments (the libraries are sourced first)
+# Returns: 0 always; sets ZC_OUT, ZC_ERR, ZC_STATUS like run_zoomctl
+# Globals: reads TEST_ENV, ZC_EXTRA_ENV, ZOOMCTL_LIBS
+run_lib_function() {
+  local error_file="$TEST_SANDBOX/stderr" library driver='' bash_path
+  # The absolute bash keeps working when a test narrows PATH to hide a tool.
+  bash_path="$(command -v bash)"
+  # A tiny driver script: source every library, then run the requested function with "$@".
+  for library in "${ZOOMCTL_LIBS[@]}"; do
+    driver+="source '$TEST_ROOT/src/lib/$library.sh'; "
+  done
+  ZC_OUT="$("${TEST_ENV[@]}" "${ZC_EXTRA_ENV[@]}" ZOOMCTL_SCRIPT_DIR="$TEST_ROOT/src" \
+    "$bash_path" -c "$driver \"\$@\"" _ "$@" 2>"$error_file" </dev/null)"
+  ZC_STATUS=$?
+  ZC_ERR="$(<"$error_file")"
+}
+
 # run_zoomctl — run the CLI in the sandbox and capture stdout, stderr and the status.
 # Args:    $1.. zoomctl arguments
 # Returns: 0 always; sets ZC_OUT, ZC_ERR, ZC_STATUS
-# Globals: reads TEST_ENV, ZOOMCTL
+# Globals: reads TEST_ENV, ZC_EXTRA_ENV, ZOOMCTL
 run_zoomctl() {
   local error_file="$TEST_SANDBOX/stderr"
-  # stdin is /dev/null so a stray prompt can never hang a suite.
-  ZC_OUT="$("${TEST_ENV[@]}" "$ZOOMCTL" "$@" 2>"$error_file" </dev/null)"
+  # stdin is /dev/null so a stray prompt can never hang a suite; ZC_EXTRA_ENV adds per-call
+  # VAR=VALUE pairs (a different PATH, a UTF-8 locale) on top of the sandbox environment.
+  ZC_OUT="$("${TEST_ENV[@]}" "${ZC_EXTRA_ENV[@]}" "$ZOOMCTL" "$@" 2>"$error_file" </dev/null)"
   ZC_STATUS=$?
   ZC_ERR="$(<"$error_file")"
 }
@@ -209,6 +236,33 @@ assert_no_file() {
 # Globals: none
 assert_file_exists() {
   if [ -e "$1" ]; then pass "$2"; else fail "$2" "file missing"; fi
+}
+
+# assert_symlink — check that a path is still a symbolic link to the expected target.
+# Args:    $1 path; $2 expected link target; $3 label
+# Returns: 0 always
+# Globals: none
+assert_symlink() {
+  [ -L "$1" ] || { fail "$3" "not a symlink: $1"; return 0; }
+  assert_eq "$2" "$(readlink -- "$1")" "$3"
+}
+
+# make_mutant — copy the code base and apply one sed edit to one library (proves a test bites).
+# Args:    $1 library file name such as common.sh; $2 sed expression
+# Returns: 0 mutant built; 1 the edit changed nothing; stdout: path of the mutant's zoomctl
+# Globals: reads TEST_ROOT, TEST_SANDBOX, SCHEMA_FILE
+make_mutant() {
+  local mutant_root
+  mutant_root="$(mktemp -d "$TEST_SANDBOX/mutant.XXXXXX")"
+  # The schema and VERSION sit where the checkout layout expects them, beside src/.
+  mkdir -p "$mutant_root/src" "$mutant_root/config"
+  cp -r "$TEST_ROOT/src/." "$mutant_root/src/"
+  cp "$SCHEMA_FILE" "$mutant_root/config/"
+  cp "$TEST_ROOT/VERSION" "$mutant_root/"
+  sed -i "$2" "$mutant_root/src/lib/$1"
+  # An edit that matched nothing would make the surviving-mutant check meaningless.
+  cmp -s "$mutant_root/src/lib/$1" "$TEST_ROOT/src/lib/$1" && return 1
+  printf '%s\n' "$mutant_root/src/zoomctl"
 }
 
 # test_finish — print the summary and exit non-zero when anything failed.
