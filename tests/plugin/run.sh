@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # run.sh — runs the hyprzoom plugin tests that need no running Hyprland.
 #   1. camera_math_test + hook_target_test — pure logic, plain g++ (always runs)
-#   2. native_equivalence_test — margin 0.05 == Hyprland's code (needs hyprutils headers)
+#   2. native_equivalence_test — margin 0.05 == Hyprland 0.56.2 AND 0.57.2 code (needs hyprutils)
 #   3. schema consistency      — plugin margin range matches config/settings.schema
-#   4. manifest_test.py        — hyprpm.toml obeys hyprpm's parser rules
-#   5. build.sh                — the .so compiles against the installed Hyprland headers
+#   4. manifest_test.py        — hyprpm.toml and the Makefile obey hyprpm's rules
+#   5. API guard               — an unknown plugin API stops the build with a clear message
+#   6. 0.57 header compile     — optional: HYPRZOOM_057_SOURCE=<extracted Hyprland 0.57 tarball>
+#   7. build.sh                — the .so compiles against the installed Hyprland headers
 # Usage: tests/plugin/run.sh [--no-build]
-# Exit:  0 all green; 1 any failure. A step that exits 77 is reported as SKIP, not failure.
+# Exit:  0 all green; 1 any failure; 77 the prerequisites (python3, g++, pkg-config) are missing
+#        (the generic CI job has none of them). A single step that exits 77 is reported as SKIP.
 set -euo pipefail
 
 # Repository root, resolved from this script so it works from any directory.
@@ -35,6 +38,23 @@ run_step() {
     # Anything else is a failure; count it for the final exit code.
     *) echo "FAIL  $name"; failures=$((failures + 1)) ;;
   esac
+}
+
+# skip_without_prerequisites — leave with the "skipped" status when a needed tool is missing.
+# Args:    none
+# Returns: returns normally when g++, python3 and pkg-config exist; otherwise exits 77
+# Globals: none
+skip_without_prerequisites() {
+  local tool missing=""
+  # Collect every missing tool so the message is complete.
+  for tool in g++ python3 pkg-config; do
+    command -v "$tool" > /dev/null 2>&1 || missing="$missing $tool"
+  done
+  # Nothing to run without them: a skip, not a failure (the plugin CI job installs them).
+  if [[ -n "$missing" ]]; then
+    echo "SKIP  plugin tests: missing tools:$missing"
+    exit 77
+  fi
 }
 
 # run_unit_tests — compiles and runs the Hyprland-free unit tests (camera maths, hook target).
@@ -66,6 +86,40 @@ run_equivalence_test() {
   "$build_dir/equivalence_test"
 }
 
+# run_api_guard_test — an unknown plugin API version must stop the build with the clear message.
+# Args:    none
+# Returns: 0 the guard fired with the expected text; 1 it did not; 77 no hyprland headers
+# Globals: reads repo_root, build_dir
+run_api_guard_test() {
+  local wrapper="$build_dir/api-guard/hyprland/src/plugins" output
+  # Without the headers there is nothing to compile against.
+  pkg-config --exists hyprland || return 77
+  mkdir -p "$wrapper"
+  # A wrapper header announces a future plugin API on top of the real one (#include_next).
+  printf '%s\n' '#include_next <hyprland/src/plugins/PluginAPI.hpp>' \
+    '#undef HYPRLAND_API_VERSION' '#define HYPRLAND_API_VERSION "9.9"' \
+    > "$wrapper/PluginAPI.hpp"
+  # The compile must fail, and the failure must be our static_assert, not some other error.
+  # shellcheck disable=SC2046  # pkg-config output is meant to be word-split into flags.
+  if output="$(g++ -fsyntax-only -std=c++2c -DWLR_USE_UNSTABLE -DHYPRZOOM_VERSION='"0"' \
+    -I"$build_dir/api-guard" $(pkg-config --cflags hyprland pixman-1 libdrm pangocairo libinput \
+    libudev wayland-server xkbcommon) "$repo_root/plugin/main.cpp" 2>&1)"; then
+    echo "the build accepted an unknown plugin API"
+    return 1
+  fi
+  # The guard's own message proves the failure is the intended one.
+  grep -q "hyprzoom supports Hyprland 0.56.x" <<< "$output"
+}
+
+# run_057_compile_check — optional compile against the headers of a Hyprland 0.57 source tree.
+# Args:    none
+# Returns: 0 compiles; 1 compile error; 77 HYPRZOOM_057_SOURCE not set or tools missing
+# Globals: reads repo_root
+run_057_compile_check() {
+  # Without a source tree there is nothing to compile against: a visible SKIP.
+  bash "$repo_root/tests/plugin/compile_against_source.sh" "${HYPRZOOM_057_SOURCE:-}"
+}
+
 # header_constant — prints the numeric value of a constexpr in plugin/camera_math.hpp.
 # Args:    $1 constant name, e.g. kMinEdgeMargin
 # Returns: 0 always; stdout: the number (empty when the constant does not exist)
@@ -95,6 +149,8 @@ run_schema_check() {
 # Returns: 0 all green; 1 any failure
 # Globals: reads repo_root; writes failures
 main() {
+  # Without the tools there is nothing to run (the generic CI job); say so with exit 77.
+  skip_without_prerequisites
   # Pure maths first: fastest feedback, no dependencies beyond g++.
   run_step "unit tests (camera maths, hook target)" run_unit_tests
   run_step "native equivalence (margin 0.05)" run_equivalence_test
@@ -102,6 +158,9 @@ main() {
   run_step "edge-margin range matches settings.schema" run_schema_check
   # Python 3.11+ ships tomllib, so the manifest test needs no third-party parser.
   run_step "hyprpm.toml manifest" python3 "$repo_root/tests/plugin/manifest_test.py"
+  # The compile-time guards: unknown API refused, and 0.57 headers compile (when available).
+  run_step "build guard refuses an unknown plugin API" run_api_guard_test
+  run_step "compiles against Hyprland 0.57 headers" run_057_compile_check
   # The build is the slow step (~10 s); build.sh itself exits 77 when the headers are missing.
   if [[ "${1:-}" != "--no-build" ]]; then
     run_step "plugin build" "$repo_root/tests/plugin/build.sh"

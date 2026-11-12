@@ -27,6 +27,20 @@ check_exports() {
   done
 }
 
+# check_version — asserts the .so carries the version of the repository's VERSION file.
+# Args:    $1 path of the built .so
+# Returns: 0 the version marker matches; 1 it is missing or different (message on stderr)
+# Globals: reads repo_root
+check_version() {
+  local shared_object="$1" expected
+  expected="$(tr -d '[:space:]' < "$repo_root/VERSION")"
+  # The marker is a C string in .rodata (see main.cpp); -a lets grep read the binary as text.
+  if ! grep -aqF "hyprzoom-version=$expected" "$shared_object"; then
+    echo "build.sh: $shared_object does not carry version $expected" >&2
+    return 1
+  fi
+}
+
 # main — builds from scratch and verifies the artefact.
 # Args:    none
 # Returns: see the header
@@ -42,6 +56,8 @@ main() {
   make -C "$repo_root/plugin"
   # The entry points are verified on the real artefact, not assumed from the source.
   check_exports "$repo_root/plugin/hyprzoom.so"
+  # The version must come from VERSION (-DHYPRZOOM_VERSION in the Makefile), not a literal.
+  check_version "$repo_root/plugin/hyprzoom.so"
   # Final line doubles as a human-readable success marker in CI logs.
   echo "build.sh: OK $(stat -c %s "$repo_root/plugin/hyprzoom.so") bytes"
 }

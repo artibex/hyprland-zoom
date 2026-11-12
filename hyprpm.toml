@@ -13,8 +13,13 @@ authors = ["artibex"]
 commit_pins = []
 
 [hyprzoom]
-description = "Adjustable edge margin for Hyprland's zoom camera (optional companion of hyprland-zoom)"
+description = "Adjustable edge margin for Hyprland's zoom camera (optional hyprland-zoom add-on)"
 authors = ["artibex"]
+# Supported: Hyprland 0.56.x and 0.57.x (the sources pick the hook signature from the headers).
+# hyprpm skips the plugin with a "too old" message on a Hyprland with fewer commits than this;
+# 7625 is the commit count of v0.56.0 (`git rev-list --count v0.56.0`). Newer unsupported
+# releases stop at the plugin's compile-time API guard instead (see docs/plugin.md).
+since_hyprland = 7625
 # Path of the built plugin, relative to the repository root.
 output = "plugin/hyprzoom.so"
 # Each step runs through the shell in the repository root, with PKG_CONFIG_PATH set to the

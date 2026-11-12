@@ -6,6 +6,16 @@
 #include "plugin_state.hpp"
 #include "zoom_hook.hpp"
 
+/// Plugin version, injected from the repository's VERSION file by the Makefile.
+#ifndef HYPRZOOM_VERSION
+#define HYPRZOOM_VERSION "unknown"
+#endif
+
+/// Version marker kept in the binary's read-only data so tools (and the repository tests) can
+/// read the version out of the .so with `strings`; short std::string literals are built from
+/// immediate values in the code and would not show up there.
+extern "C" EXPORT const char hyprzoomVersionMarker[] = "hyprzoom-version=" HYPRZOOM_VERSION;
+
 namespace {
 
 /// Name under which the plugin is registered and the prefix of its config values.
@@ -84,7 +94,8 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         throw std::runtime_error("[hyprzoom] hook refused: " + *reason);
     }
     // These strings show up in `hyprctl plugin list` and `hl.get_loaded_plugins()`.
-    return {kPluginName, "Adjustable edge margin for the detached zoom camera", "artibex", "0.2.0"};
+    return {kPluginName, "Adjustable edge margin for the detached zoom camera", "artibex",
+            HYPRZOOM_VERSION};
 }
 
 /// Plugin exit: restores Hyprland's own camera code before the .so is unloaded.

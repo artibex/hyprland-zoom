@@ -23,11 +23,12 @@ namespace {
 /// @return Ready-to-use frame input.
 CameraInput inputAt(Vec2 pointer, double margin) {
     CameraInput input;
-    // Only these four fields differ between the cases; everything else keeps its default.
+    // The pointer and the monitor geometry are fixed per measurement.
     input.pointer     = pointer;
     input.monitorSize = {1280.0, 720.0};
-    input.zoom        = 2.0F;
-    input.edgeMargin  = margin;
+    // Zoom and margin are the parameters under test; everything else keeps its default.
+    input.zoom       = 2.0F;
+    input.edgeMargin = margin;
     return input;
 }
 
@@ -89,11 +90,13 @@ void testLargerMarginPansEarlier() {
     // Anchored at the monitor centre the camera is x 320..960, y 180..540.
     CameraState wide   = zoomedInAtCentre(0.05);
     CameraState narrow = zoomedInAtCentre(0.30);
+    // Both cameras see the same pointer move to the right.
     movePointer(wide, {800.0, 360.0}, 0.05);
     movePointer(narrow, {800.0, 360.0}, 0.30);
     // Native safe box reaches x=928: no pan. The 0.30 box ends at 768: pans by 32.
     checkNear(wide.camera.x, 320.0, "native camera.x");
     checkNear(narrow.camera.x, 352.0, "margin 0.30 camera.x");
+    // A far move to the bottom right pans the narrow camera on both axes.
     movePointer(narrow, {1100.0, 600.0}, 0.30);
     // After a pan the pointer rests on the safe-box rim: camera = pointer - 0.7 * view.
     checkNear(narrow.camera.x, 652.0, "camera.x at (1100,600)");
@@ -128,6 +131,7 @@ void testAntiJerkAtAnchor() {
     CameraState state = zoomedInAtAnchor(0.30);
     // The anchor (300,200) lies outside the 0.30 safe box, so the padded box stays off.
     check(!state.padCamEdges, "padding must start disabled");
+    // Moving to the screen centre must not pan the camera.
     movePointer(state, {640.0, 360.0}, 0.30);
     checkNear(state.camera.x, 150.0, "camera.x does not jerk");
     // The camera centre (470,280) is inside the safe box: padding engages, no pan yet.
@@ -160,6 +164,7 @@ void testClamping() {
 
 /// Case: rigid mode (cursor:zoom_rigid) freezes the camera at the anchor.
 void testRigidNeverPans() {
+    // Anchor the camera in rigid mode.
     CameraState state;
     CameraInput input = inputAt({300.0, 200.0}, 0.30);
     input.rigid       = true;
@@ -173,6 +178,7 @@ void testRigidNeverPans() {
 
 /// Case: a zoom step that strands the pointer does not pan until the pointer returns.
 void testAntiJerkAfterZoomStep() {
+    // Pan to the bottom right first, so the next zoom step re-anchors near the monitor corner.
     CameraState state = zoomedInAtAnchor(0.05);
     movePointer(state, {1100.0, 600.0}, 0.05);
     // Zoom 2 -> 4 re-anchors on the pointer, which lands on the camera box rim.
@@ -203,6 +209,40 @@ void testProjection() {
     checkNear(box.h, 1440.0, "box.h");
 }
 
+/// Case: the safe box includes its left/top edge and excludes its right/bottom edge.
+void testContainsPointIsHalfOpen() {
+    const Box box{10.0, 20.0, 100.0, 50.0};
+    // Left and top edges are inside, like CBox::containsPoint.
+    check(containsPoint(box, {10.0, 20.0}), "top-left corner is inside");
+    check(containsPoint(box, {10.0, 69.9}), "left edge is inside");
+    // The right edge (x = 110) and the bottom edge (y = 70) are outside.
+    check(!containsPoint(box, {110.0, 30.0}), "right edge is outside");
+    check(!containsPoint(box, {50.0, 70.0}), "bottom edge is outside");
+}
+
+/// Case: a pointer exactly on the safe box's right edge does not re-enable the padding.
+void testPaddingNeedsThePointerStrictlyInside() {
+    // A stranding zoom step switches the padding off (see the anti-jerk cases).
+    CameraState state = zoomedInAtAnchor(0.30);
+    check(!state.padCamEdges, "padding starts disabled");
+    // The camera is x 150..790, y 100..460; the 0.30 safe box spans x 342..598 (exclusive end).
+    movePointer(state, {598.0, 280.0}, 0.30);
+    check(!state.padCamEdges, "a pointer ON the right edge is outside the safe box");
+    // One pixel further in, the padding engages.
+    movePointer(state, {597.0, 280.0}, 0.30);
+    check(state.padCamEdges, "a pointer inside the safe box engages the padding");
+}
+
+/// Case: the camera pans left and up as well (the mirror of the right/down cases).
+void testPansLeftAndUp() {
+    CameraState state = zoomedInAtCentre(0.30);
+    // The camera is x 320..960, y 180..540; the 0.30 safe box is x 512..768, y 288..432.
+    movePointer(state, {100.0, 50.0}, 0.30);
+    // Overshoot 512-100 = 412 to the left and 288-50 = 238 upwards.
+    checkNear(state.camera.x, -92.0, "camera.x pans left");
+    checkNear(state.camera.y, -58.0, "camera.y pans up");
+}
+
 /// All test cases, in the order they are reported.
 std::vector<minitest::TestCase> buildCases() {
     return {
@@ -220,6 +260,10 @@ std::vector<minitest::TestCase> buildCases() {
         {"anti-jerk: a stranding zoom step does not pan until the pointer returns",
          testAntiJerkAfterZoomStep},
         {"projection matches Hyprland's monbox.scale(z).translate(-cam*z)", testProjection},
+        {"containsPoint is half-open: left/top in, right/bottom out", testContainsPointIsHalfOpen},
+        {"padding re-engages only for a pointer strictly inside the safe box",
+         testPaddingNeedsThePointerStrictlyInside},
+        {"the camera pans left and up", testPansLeftAndUp},
     };
 }
 
