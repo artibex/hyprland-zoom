@@ -354,7 +354,8 @@ function M.start(session)
   initialise_runtime(session)
   adopt_config_changes(session)
   -- Foreign binds are read once, here at load time (it lists a directory); later applies reuse it.
-  session.store.foreign_chords = collisions.scan(session.host)
+  -- Omarchy's own files only count when Omarchy is loaded, the same test as the takeover.
+  session.store.foreign_chords = collisions.scan(session.host, session.host.omarchy_present())
   M.apply_all(session, is_rerun)
   M.watch_plugin_events(session)
   -- Stale shader files of earlier sessions go now; listing a directory is load-time only.
