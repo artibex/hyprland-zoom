@@ -90,12 +90,28 @@ class ControllerFixture(FakeZoomctlTestCase):
         self.controller = SettingsController(schema, ZoomctlClient(str(support.FAKE_ZOOMCTL)))
         # Plain lists collect what the signals deliver.
         self.errors = []
+        self.error_details = []
         self.config_changes = []
         self.status_changes = []
         # Signal handlers append to plain lists the tests inspect.
-        self.controller.connect("error", lambda _c, message: self.errors.append(message))
+        self.controller.connect("error", self._record_error)
         self.controller.connect("config-changed", lambda _c: self.config_changes.append(1))
         self.controller.connect("status-changed", lambda _c: self.status_changes.append(1))
+
+    def _record_error(self, _controller, message, details):
+        """Remember an error signal.
+
+        Args:
+            _controller: The controller (unused).
+            message: Plain sentence.
+            details: Technical text.
+
+        Returns:
+            None.
+        """
+        # Two parallel lists keep the assertions of older tests unchanged.
+        self.errors.append(message)
+        self.error_details.append(details)
 
 
 class ControllerTests(ControllerFixture):
@@ -136,13 +152,14 @@ class ControllerTests(ControllerFixture):
 
     def test_rejected_set_keeps_the_old_value_and_reports_the_message(self):
         """zoomctl refusing a change leaves the effective value untouched."""
-        self.fake.respond("set", stderr="zoomctl: ZOOM_MIN must be <= ZOOM_RESET\n", rc=1)
+        self.fake.respond("set", stderr="zoomctl: the engine said no\n", rc=1)
         outcomes = []
-        self.controller.set_value("ZOOM_MIN", "5", outcomes.append)
+        self.controller.set_value("ZOOM_MAX", "6", outcomes.append)
         # The outcome callback fires after the process ended.
         pump(lambda: outcomes)
         self.assertEqual(outcomes, [False])
-        self.assertEqual(self.errors, ["zoomctl: ZOOM_MIN must be <= ZOOM_RESET"])
+        # The prefix is gone; short, path-free text is shown as it is.
+        self.assertEqual(self.errors, ["The engine said no"])
         # A refused change leaves the default untouched.
         self.assertEqual(self.controller.values["ZOOM_MIN"], "1.00")
 
@@ -200,14 +217,14 @@ class ControllerTests(ControllerFixture):
         """``set`` exits 0 with a note when the engine is offline: shown as info."""
         self.fake.respond("set", stderr="zoomctl: engine not reachable, saved only\n", rc=0)
         infos = []
-        self.controller.connect("info", lambda _c, message: infos.append(message))
+        self.controller.connect("info", lambda _c, message, _details: infos.append(message))
         # The outcome list proves the change counted as applied.
         outcomes = []
         self.controller.set_value("ZOOM_STEP", "0.3", outcomes.append)
         pump(lambda: outcomes)
         # Exit status 0 means success even with a note.
         self.assertEqual(outcomes, [True])
-        self.assertEqual(infos, ["zoomctl: engine not reachable, saved only"])
+        self.assertIn("Hyprland is not reachable", infos[0])
         self.assertEqual(self.errors, [])
 
     def test_run_action_reports_failures_as_errors(self):
@@ -217,7 +234,46 @@ class ControllerTests(ControllerFixture):
         self.controller.run_action(["zoom", "2.00"], results.append)
         # Wait for the failing command to report.
         pump(lambda: results)
-        self.assertEqual(self.errors, ["zoomctl: engine not loaded"])
+        self.assertEqual(self.errors, ["The zoom engine is not loaded in Hyprland."])
+        # The raw text stays available for the Details button.
+        self.assertEqual(self.error_details, ["engine not loaded"])
+
+    def test_zoom_order_rule_is_checked_locally_with_labels(self):
+        """MIN above RESET never reaches zoomctl; the message names the labels."""
+        verdict = self.controller.set_value("ZOOM_MIN", "3")
+        self.assertFalse(verdict.ok)
+        self.assertEqual(self.errors, ["Minimum zoom (3.00) can't be above Reset zoom (1.00)"])
+        pump_for(0.2)
+        self.assertEqual(self.fake.calls_matching("set"), [])
+
+    def test_failed_set_tells_widgets_to_revert_even_when_the_reread_fails_too(self):
+        """A rejected change must not depend on the follow-up config read to be undone."""
+        self.fake.respond("set", stderr="zoomctl: no\n", rc=1)
+        self.fake.respond("config", stderr="zoomctl: cannot read\n", rc=1)
+        outcomes = []
+        self.controller.set_value("ZOOM_STEP", "0.5", outcomes.append)
+        pump(lambda: outcomes)
+        # The revert signal comes from the failed set itself.
+        self.assertTrue(self.config_changes)
+        # The failed read is reported too, and the old value stays effective.
+        self.wait_for_calls("config")
+        pump(lambda: len(self.errors) >= 2)
+        self.assertEqual(self.controller.values["ZOOM_STEP"], "0.10")
+
+    def test_unchanged_configuration_does_not_redraw(self):
+        """The periodic re-read stays silent without news."""
+        self.controller.refresh_config()
+        pump(lambda: self.config_changes)
+        seen = len(self.config_changes)
+        self.controller.refresh_config()
+        self.wait_for_calls("config", count=2)
+        pump_for(0.2)
+        self.assertEqual(len(self.config_changes), seen)
+        # An external change is noticed.
+        self.fake.respond("config", stdout="ZOOM_STEP=0.77\n")
+        self.controller.refresh_config()
+        pump(lambda: len(self.config_changes) > seen)
+        self.assertEqual(self.controller.values["ZOOM_STEP"], "0.77")
 
 
 class TryItTests(ControllerFixture):
@@ -246,8 +302,15 @@ class TryItTests(ControllerFixture):
         self.assertEqual(session.mode, tryit.MODE_ZOOM)
         # The restore is the second zoom call.
         self.wait_for_calls("zoom", count=2)
-        self.assertEqual(self.fake.calls_matching("zoom"), [["zoom", "2.00"], ["zoom", "1.30"]])
+        self.assertEqual(
+            self.fake.calls_matching("zoom"),
+            [["zoom", "2.00", "--transient"], ["zoom", "1.30", "--transient"]],
+        )
         self.assertEqual(session.mode, tryit.MODE_IDLE)
+        # The test left the toggle's remembered level alone (R-P2-18).
+        self.controller.refresh_status()
+        pump(lambda: self.controller.status.saved_zoom is not None)
+        self.assertNotEqual(self.controller.status.saved_zoom, 2.0)
 
     def test_countdown_is_reported_through_the_changed_signal(self):
         """The widgets see every remaining second."""
@@ -279,9 +342,9 @@ class TryItTests(ControllerFixture):
         # The failed start ends the test by itself.
         pump(lambda: session.mode == tryit.MODE_IDLE)
         pump_for(0.3)
-        self.assertEqual(self.fake.calls_matching("zoom"), [["zoom", "2.00"]])
-        # The failure reached the user as an error.
-        self.assertEqual(self.errors, ["zoomctl: no engine"])
+        self.assertEqual(self.fake.calls_matching("zoom"), [["zoom", "2.00", "--transient"]])
+        # The failure reached the user as an error, in plain words.
+        self.assertEqual(self.errors, ["The zoom engine is not loaded in Hyprland."])
 
     def test_filter_preview_uses_the_configured_filter_and_ends_with_preview_end(self):
         """The preview forces the filter on and is dropped when the countdown ends."""
@@ -324,7 +387,44 @@ class TryItTests(ControllerFixture):
         session.shutdown()
         # Shutdown restores without waiting for the countdown.
         self.wait_for_calls("zoom", count=2)
-        self.assertEqual(self.fake.calls_matching("zoom")[-1], ["zoom", "1.30"])
+        self.assertEqual(self.fake.calls_matching("zoom")[-1], ["zoom", "1.30", "--transient"])
+
+    def test_failed_preview_start_ends_the_preview_quietly(self):
+        """A refused preview may have applied part of it, so it is ended (R-P2-02)."""
+        self.fake.respond("preview", "FILTER=smart-invert", stderr="zoomctl: boom\n", rc=1,
+                          apply=True)
+        session = self.make()
+        session.start_filter_preview()
+        pump(lambda: session.mode == tryit.MODE_IDLE)
+        self.wait_for_calls("preview", count=2)
+        self.assertEqual(self.fake.calls_matching("preview")[1], ["preview", "--end"])
+        pump_for(0.2)
+        # One error for the failed start; the cleanup call is silent even if it fails too.
+        self.assertEqual(len(self.errors), 1)
+
+    def test_changing_the_filter_during_a_preview_updates_the_preview(self):
+        """The newly saved filter shows up in the running preview and the countdown restarts."""
+        session = self.make(filter_seconds=50)
+        session.start_filter_preview()
+        self.wait_for_calls("preview")
+        session.seconds_left = 10
+        self.controller.set_value("FILTER", "grayscale")
+        self.wait_for_calls("preview", count=2)
+        self.assertEqual(self.fake.calls_matching("preview")[1],
+                         ["preview", "FILTER=grayscale", "FILTER_ACTIVE=on"])
+        # The countdown restarted (at most one tick has passed since).
+        self.assertGreaterEqual(session.seconds_left, 49)
+        # The preview is still running.
+        self.assertEqual(session.mode, tryit.MODE_FILTER)
+
+    def test_filter_change_without_a_preview_starts_nothing(self):
+        """Idle sessions ignore filter changes."""
+        session = self.make()
+        self.controller.set_value("FILTER", "invert")
+        self.wait_for_calls("set")
+        pump_for(0.3)
+        self.assertEqual(self.fake.calls_matching("preview"), [])
+        self.assertEqual(session.mode, tryit.MODE_IDLE)
 
 
 if __name__ == "__main__":

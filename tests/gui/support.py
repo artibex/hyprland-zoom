@@ -21,9 +21,23 @@ from pathlib import Path
 from typing import Callable, List, Optional
 from unittest import mock
 
-# PyGObject's event-loop shim trips a Python 3.14 deprecation on every main-loop turn; it is
-# upstream noise (gi/events.py) and would bury real warnings.
-warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"gi\.events")
+
+
+def silence_gi_warnings() -> None:
+    """Hide the upstream deprecation noise of PyGObject's event-loop shim.
+
+    PyGObject's shim (gi/events.py) trips a Python 3.14 deprecation on every main-loop turn.
+    unittest installs its own warning filters when a run starts, so this must be called from
+    inside the run (module and test set-up), not only at import time.
+
+    Returns:
+        None.
+    """
+    # The module regex keeps every other deprecation warning visible.
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"gi\.events")
+
+
+silence_gi_warnings()
 
 # Seconds a test may wait for an asynchronous reaction before it counts as failed.
 WAIT_SECONDS = 8.0
@@ -211,6 +225,7 @@ class FakeZoomctlTestCase(unittest.TestCase):
         Returns:
             None.
         """
+        silence_gi_warnings()
         # A private temp dir per test keeps call logs and stored settings isolated.
         scratch = tempfile.TemporaryDirectory(prefix="hzoom-gui-")
         self.addCleanup(scratch.cleanup)
