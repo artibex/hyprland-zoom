@@ -70,9 +70,11 @@ zoomctl_config_apply_compat() {
   [ -n "${compat_map_ref[ZOOM_CENTER_CURSOR]+set}" ] || return 0
   # An explicit ZOOM_TRACKING wins over the old switch.
   if [ -z "${compat_map_ref[ZOOM_TRACKING]+set}" ]; then
-    tracking_mode="$(zoomctl_config_legacy_tracking "${compat_map_ref[ZOOM_CENTER_CURSOR]}")" \
-      && compat_map_ref[ZOOM_TRACKING]="$tracking_mode" \
-      || zoomctl_warn "$config_file: invalid ZOOM_CENTER_CURSOR ignored"
+    if tracking_mode="$(zoomctl_config_legacy_tracking "${compat_map_ref[ZOOM_CENTER_CURSOR]}")"; then
+      compat_map_ref[ZOOM_TRACKING]="$tracking_mode"
+    else
+      zoomctl_warn "$config_file: invalid ZOOM_CENTER_CURSOR ignored"
+    fi
   fi
   # 0.1 steps were additive, so the layer keeps its meaning with step mode add.
   [ -n "${compat_map_ref[ZOOM_STEP_MODE]+set}" ] || compat_map_ref[ZOOM_STEP_MODE]='add'

@@ -110,8 +110,8 @@ fake_calls() {
 # Globals: removes files in the sandbox
 reset_sandbox() {
   # The share and bin directories stay; everything a scenario can change goes.
-  rm -rf "$TEST_SANDBOX/config" "$TEST_SANDBOX/etc/zoomctl.conf" "$TEST_SANDBOX/run"/* \
-    "$FAKE_DIR"/* "$TEST_SANDBOX/home/.config"
+  rm -rf "${TEST_SANDBOX:?}/config" "${TEST_SANDBOX:?}/etc/zoomctl.conf" "${TEST_SANDBOX:?}/run"/* \
+    "${FAKE_DIR:?}"/* "${TEST_SANDBOX:?}/home/.config"
 }
 
 # pass — record a passing assertion.
@@ -139,6 +139,26 @@ fail() {
 # Globals: none
 assert_eq() {
   if [ "$1" = "$2" ]; then pass "$3"; else fail "$3" "expected [$1] got [$2]"; fi
+}
+
+# assert_true — assert that a command succeeds.
+# Args:    $1 label; $2.. command and arguments (output discarded)
+# Returns: 0 always
+# Globals: none
+assert_true() {
+  local label="$1"
+  shift
+  if "$@" >/dev/null 2>&1; then pass "$label"; else fail "$label" "command failed"; fi
+}
+
+# assert_false — assert that a command fails.
+# Args:    $1 label; $2.. command and arguments (output discarded)
+# Returns: 0 always
+# Globals: none
+assert_false() {
+  local label="$1"
+  shift
+  if "$@" >/dev/null 2>&1; then fail "$label" "command succeeded"; else pass "$label"; fi
 }
 
 # assert_status — check the exit status of the last run_zoomctl.

@@ -20,6 +20,7 @@ assert_calls() {
 # Globals: none
 test_zoom_forwarding() {
   local command_line expected
+  local -a command_words
   for command_line in 'in:HyprZoom.zoom_in(1)' 'in 3:HyprZoom.zoom_in(3)' 'in 007:HyprZoom.zoom_in(7)' \
     'out:HyprZoom.zoom_out(1)' 'out 2:HyprZoom.zoom_out(2)' 'toggle:HyprZoom.toggle()' \
     'reset:HyprZoom.reset()' 'zoom 2.5:HyprZoom.set_zoom(2.50)' 'zoom 10:HyprZoom.set_zoom(10.00)' \
@@ -28,8 +29,9 @@ test_zoom_forwarding() {
     'filter Grayscale:HyprZoom.filter("grayscale")'; do
     reset_sandbox
     set_fake_mode engine
-    # shellcheck disable=SC2086
-    run_zoomctl ${command_line%%:*}
+    # The command words are space separated and never contain shell syntax.
+    read -ra command_words <<< "${command_line%%:*}"
+    run_zoomctl "${command_words[@]}"
     expected="eval ${command_line#*:}"
     assert_status 0 "forward [${command_line%%:*}]"
     assert_calls "$expected" "forward [${command_line%%:*}] sends exactly one eval"
@@ -51,7 +53,7 @@ test_injection_rejected() {
     'filter|nope' 'filter|x")os.exit()--' 'filter|on|off' 'toggle|now' 'reset|now'; do
     IFS='|' read -ra argument_list <<< "$arguments"
     run_zoomctl "${argument_list[@]}"
-    [ "$ZC_STATUS" -ne 0 ] && pass "reject [$arguments]" || fail "reject [$arguments]" "exit status 0"
+    if [ "$ZC_STATUS" -ne 0 ]; then pass "reject [$arguments]"; else fail "reject [$arguments]" "exit 0"; fi
   done
   run_zoomctl in ''
   assert_status 2 "reject: empty notch count is not the default"

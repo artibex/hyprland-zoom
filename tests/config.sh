@@ -12,7 +12,8 @@ load_zoomctl_libs
 # Globals: none
 write_conf() {
   mkdir -p "$(dirname -- "$1")"
-  printf "$2" > "$1"
+  # %b expands the \n and \r escapes of the body without using it as a format string.
+  printf '%b' "$2" > "$1"
 }
 
 # load_config — load the effective config in-process, capturing warnings in LOAD_WARNINGS.

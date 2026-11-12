@@ -64,9 +64,8 @@ test_schema_defaults_valid() {
     [ "$canonical" = "${ZOOMCTL_SCHEMA_DEFAULT[$key]}" ] || { bad=1; fail "default of $key canonical"; }
   done
   assert_eq 0 "$bad" "schema: every default validates and is canonical"
-  zoomctl_bounds_ok "${ZOOMCTL_SCHEMA_DEFAULT[ZOOM_MIN]}" "${ZOOMCTL_SCHEMA_DEFAULT[ZOOM_RESET]}" \
-    "${ZOOMCTL_SCHEMA_DEFAULT[ZOOM_MAX]}" && pass "schema: default bounds hold" ||
-    fail "schema: default bounds hold"
+  assert_true "schema: default bounds hold" zoomctl_bounds_ok "${ZOOMCTL_SCHEMA_DEFAULT[ZOOM_MIN]}" \
+    "${ZOOMCTL_SCHEMA_DEFAULT[ZOOM_RESET]}" "${ZOOMCTL_SCHEMA_DEFAULT[ZOOM_MAX]}"
 }
 
 # test_aliases — CLI aliases from C1 plus the 0.1 spellings.
@@ -82,8 +81,9 @@ test_aliases() {
     center-cursor:ZOOM_TRACKING; do
     assert_eq "${pair#*:}" "$(zoomctl_schema_resolve_key "${pair%%:*}")" "alias ${pair%%:*}"
   done
-  zoomctl_schema_resolve_key 'nope' >/dev/null && fail "unknown alias rejected" || pass "unknown alias rejected"
-  zoomctl_schema_resolve_key '' >/dev/null && fail "empty alias rejected" || pass "empty alias rejected"
+  assert_false "unknown alias rejected" zoomctl_schema_resolve_key 'nope'
+  assert_false "empty alias rejected" zoomctl_schema_resolve_key ''
+
 }
 
 # test_validators — table of valid and invalid inputs for every type.
@@ -124,6 +124,7 @@ test_key_and_mods() {
   check_valid key '' mouse:274 mouse:274
   check_valid key '' F5 F5
   check_valid key '' '' ''
+  # shellcheck disable=SC2016  # the dollar sign is deliberately literal hostile input
   for input in 'a b' 'x"y' '$(x)' 'a;b' 'a\b' "a'b" 'a]b' 'abcdefghijklmnopqrstuvwxyz0123456789' $'a\nb'; do
     check_invalid key '' "$input"
   done
@@ -142,11 +143,11 @@ test_key_and_mods() {
 # Returns: 0 always
 # Globals: none
 test_bounds_rule() {
-  zoomctl_bounds_ok 1.00 1.00 10.00 && pass "bounds: defaults hold" || fail "bounds: defaults hold"
-  zoomctl_bounds_ok 1.00 5.00 5.00 && pass "bounds: reset == max holds" || fail "bounds: reset == max holds"
-  zoomctl_bounds_ok 2.00 1.00 10.00 && fail "bounds: min > reset rejected" || pass "bounds: min > reset rejected"
-  zoomctl_bounds_ok 1.00 6.00 5.00 && fail "bounds: reset > max rejected" || pass "bounds: reset > max rejected"
-  zoomctl_bounds_ok 1.00 abc 5.00 && fail "bounds: garbage rejected" || pass "bounds: garbage rejected"
+  assert_true "bounds: defaults hold" zoomctl_bounds_ok 1.00 1.00 10.00
+  assert_true "bounds: reset == max holds" zoomctl_bounds_ok 1.00 5.00 5.00
+  assert_false "bounds: min > reset rejected" zoomctl_bounds_ok 2.00 1.00 10.00
+  assert_false "bounds: reset > max rejected" zoomctl_bounds_ok 1.00 6.00 5.00
+  assert_false "bounds: garbage rejected" zoomctl_bounds_ok 1.00 abc 5.00
 }
 
 # test_generated_files — committed generated files equal the CLI's output (drift guard).
