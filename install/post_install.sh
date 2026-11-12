@@ -536,6 +536,22 @@ zoomctl_create_config() {
   printf 'zoomctl: created %s\n' "$1"
 }
 
+# zoomctl_same_content — tell whether two files hold exactly the same bytes.
+# Args:    $1 first file; $2 second file
+# Returns: 0 identical; 1 different or unreadable
+# Globals: none
+# Notes:   sha256sum (coreutils) instead of cmp: diffutils is not part of Arch's base set
+#          and was missing on the CI container, which made every unchanged file look changed.
+zoomctl_same_content() {
+  local first_sum second_sum
+  # Only the checksum column matters; the file name column differs by definition.
+  first_sum="$(sha256sum < "$1" 2>/dev/null)" || return 1
+  # The second file is hashed the same way, from stdin.
+  second_sum="$(sha256sum < "$2" 2>/dev/null)" || return 1
+  # Equal checksums mean equal content for every practical purpose.
+  [ "$first_sum" = "$second_sum" ]
+}
+
 # zoomctl_wire_lua_config — make an existing hyprland.lua load the engine exactly once.
 # Args:    $1 path of hyprland.lua (a file or a symlink to one)
 # Returns: 0 done or already wired; 1 failed (message on stderr, file untouched)
@@ -549,7 +565,7 @@ zoomctl_wire_lua_config() {
   zoomctl_render_lua_config "$config_file" > "$draft_file" ||
     { rm -f -- "$draft_file"; zoomctl_wiring_fail "cannot read $config_file"; return 1; }
   # Identical output means nothing to do, and no backup clutter either.
-  if cmp -s -- "$draft_file" "$config_file"; then
+  if zoomctl_same_content "$draft_file" "$config_file"; then
     rm -f -- "$draft_file"
     # Say so instead of staying silent.
     printf 'zoomctl: Hyprland include already present in %s\n' "$config_file"
