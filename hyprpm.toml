@@ -1,0 +1,22 @@
+# hyprpm manifest of hyprland-zoom. `hyprpm add https://github.com/artibex/hyprland-zoom` reads
+# this file, runs the build steps in the checkout and loads `output` on `hyprpm enable hyprzoom`.
+# Format reference: hyprpm/src/core/Manifest.cpp (MANIFEST_HYPRPM) in the Hyprland source.
+
+[repository]
+name = "hyprland-zoom"
+authors = ["artibex"]
+# Pins make hyprpm check out a known-good revision of THIS repository when the running Hyprland
+# has exactly the given commit hash; without a matching pin the default branch is built.
+# Format: ["<full Hyprland commit hash>", "<hyprland-zoom commit that builds against it>"].
+# Add one row per tested Hyprland release when tagging a hyprland-zoom release, e.g. for 0.56.2:
+#   ["efb50993780079460b0cbed1363e2166a2de1d9f", "<hyprland-zoom commit sha>"],
+commit_pins = []
+
+[hyprzoom]
+description = "Adjustable edge margin for Hyprland's zoom camera (optional companion of hyprland-zoom)"
+authors = ["artibex"]
+# Path of the built plugin, relative to the repository root.
+output = "plugin/hyprzoom.so"
+# Each step runs through the shell in the repository root, with PKG_CONFIG_PATH set to the
+# headers of the running Hyprland.
+build = ["make -C plugin clean", "make -C plugin"]
