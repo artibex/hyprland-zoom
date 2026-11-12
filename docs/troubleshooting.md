@@ -102,3 +102,19 @@ on the same key combination, including your own.
 that `zoomctl setup` added to `hyprland.lua` / `hyprland.conf`, after saving a backup next to
 the file. Your own settings in `~/.config/zoomctl/zoom.conf` stay; delete the file if you do
 not need it.
+
+## Development and CI
+
+Problems met while building 0.2, kept here so they are recognized when they come back.
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Fast scroll notches zoom only once per ~300 ms and the rest scroll the window | Hyprland's `binds.scroll_event_delay` (default 300 ms) hands later notches to the client | The engine sets it from `SCROLL_EVENT_DELAY_MS` (default 0) |
+| 20 quick `zoomctl in` calls end at 1.1–1.2 instead of 3.0 (0.1 MVP) | Each call read, computed and wrote the zoom through `hyprctl` in its own process (race) | Zoom math runs inside Hyprland's Lua state; the legacy path serializes with `flock` |
+| Red config-error bar after every reload | `plugin.hyprzoom.*` keys were set without the plugin; 0.56 records unknown keys as errors | Plugin keys are set only while the plugin is loaded |
+| Hyprland crashes when a changed shortcut plan is applied | `remove()` on a bind handle that another unbind already expired dereferences a null pointer in 0.56.2 | Expired handles (`tostring()` check) are skipped |
+| `zoomctl setup` creates backups although nothing changed (CI only) | `cmp` (diffutils) is not part of a bare Arch install | Content comparison via `sha256sum` (coreutils) |
+| Plugin build: `IHyprRenderer has no member named m_renderData` | Arch moved to Hyprland 0.57, which changed the hooked function | The plugin picks the 0.56 or 0.57 code path at compile time |
+| GUI suite errors in `makepkg` check() or the generic test job | PyGObject/GTK/`python3` not installed there | `tests/gui/run.sh` exits 77 (skip) and names the missing piece |
+| GUI test `Directory not empty` on cleanup (CI only) | A fake `zoomctl` was still writing when the test removed its temp dir | Fakes hold a shared lock; cleanup waits for it |
+| namcap errors for `glib2`, `hicolor-icon-theme` | The UI imports GLib/Gio and installs hicolor icons | Both are runtime dependencies in the PKGBUILD |
