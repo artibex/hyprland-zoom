@@ -191,22 +191,22 @@ class StructureTests(GuiTestCase):
     def test_widget_type_follows_the_schema_type(self):
         """float short -> slider, float wide / int -> spin, bool -> switch, enum -> combo/list."""
         window = self.open_window()
-        rows, Adw, Gtk = GUI["rows"], GUI["Adw"], GUI["Gtk"]
+        rows, adw, gtk = GUI["rows"], GUI["Adw"], GUI["Gtk"]
         self.assertIsInstance(self.row(window, "ZOOM_STEP"), rows.ScaleSettingRow)
         # Other short-range floats are sliders too.
         self.assertIsInstance(self.row(window, "FILTER_INTENSITY"), rows.ScaleSettingRow)
         self.assertIsInstance(self.row(window, "ZOOM_MAX"), rows.SpinSettingRow)
-        self.assertIsInstance(self.row(window, "SCROLL_EVENT_DELAY_MS").widget, Adw.SpinRow)
+        self.assertIsInstance(self.row(window, "SCROLL_EVENT_DELAY_MS").widget, adw.SpinRow)
         # Bools are switches, enums with few options are combos.
-        self.assertIsInstance(self.row(window, "ZOOM_SMOOTH_IMAGES").widget, Adw.SwitchRow)
-        self.assertIsInstance(self.row(window, "ZOOM_STEP_MODE").widget, Adw.ComboRow)
+        self.assertIsInstance(self.row(window, "ZOOM_SMOOTH_IMAGES").widget, adw.SwitchRow)
+        self.assertIsInstance(self.row(window, "ZOOM_STEP_MODE").widget, adw.ComboRow)
         self.assertIsInstance(self.row(window, "ZOOM_TRACKING"), rows.ChoiceListRow)
         # Filter and tracking are explained choice lists.
         self.assertIsInstance(self.row(window, "FILTER"), rows.ChoiceListRow)
         self.assertIsInstance(self.row(window, "BIND_MODIFIERS"), rows.ModifiersSettingRow)
         self.assertIsInstance(self.row(window, "BIND_KEY_IN"), rows.KeySettingRow)
         # The slider is a real Gtk.Scale.
-        self.assertIsInstance(self.row(window, "ZOOM_STEP").scale, Gtk.Scale)
+        self.assertIsInstance(self.row(window, "ZOOM_STEP").scale, gtk.Scale)
 
     def test_slider_range_and_digits_come_from_the_schema(self):
         """Range and precision are not hard-coded in the widgets."""
@@ -248,8 +248,8 @@ class StructureTests(GuiTestCase):
     def test_interactive_parts_are_keyboard_focusable(self):
         """Sliders, switches, buttons and radio buttons can take focus."""
         window = self.open_window()
-        Gtk = GUI["Gtk"]
-        focusable_types = (Gtk.Scale, Gtk.Switch, Gtk.Button, Gtk.CheckButton, Gtk.ToggleButton)
+        gtk = GUI["Gtk"]
+        focusable_types = (gtk.Scale, gtk.Switch, gtk.Button, gtk.CheckButton, gtk.ToggleButton)
         # Hidden widgets (disabled key rows) are skipped.
         for widget in iter_widgets(window):
             if isinstance(widget, focusable_types) and widget.get_visible():

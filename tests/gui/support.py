@@ -246,6 +246,8 @@ class BroadwayDisplay:
         self.daemon: Optional[subprocess.Popen] = None
         self.name = ""
         self._sockets_before: set = set()
+        # Set when the environment has no runtime dir (minimal CI containers).
+        self._private_runtime_dir: Optional[str] = None
 
     @staticmethod
     def _runtime_dir() -> str:
@@ -256,6 +258,20 @@ class BroadwayDisplay:
         """
         # Broadway uses XDG_RUNTIME_DIR; /tmp is the fallback for minimal CI containers.
         return os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+
+    def _ensure_runtime_dir(self) -> None:
+        """Create a private runtime directory when the environment has none.
+
+        Returns:
+            None.
+        """
+        # GLib would otherwise fall back to a cache directory for the Broadway sockets.
+        if os.environ.get("XDG_RUNTIME_DIR"):
+            return
+        self._private_runtime_dir = tempfile.mkdtemp(prefix="hzoom-runtime-")
+        os.chmod(self._private_runtime_dir, 0o700)
+        # Exporting it lets the daemon and GTK agree on one runtime directory.
+        os.environ["XDG_RUNTIME_DIR"] = self._private_runtime_dir
 
     def _free_display_number(self) -> int:
         """Find a display number whose HTTP port and socket are unused.
@@ -288,6 +304,8 @@ class BroadwayDisplay:
         binary = shutil.which("gtk4-broadwayd")
         if binary is None:
             raise unittest.SkipTest("gtk4-broadwayd is not installed")
+        # Broadway sockets live in the runtime directory, so it must exist first.
+        self._ensure_runtime_dir()
         # Remembering the old sockets protects other users' displays on cleanup.
         self._sockets_before = {
             name for name in os.listdir(self._runtime_dir()) if name.startswith("broadway")
@@ -319,3 +337,6 @@ class BroadwayDisplay:
             if name.startswith("broadway") and name not in self._sockets_before:
                 # Only sockets created by this run are removed, never somebody else's.
                 os.remove(os.path.join(self._runtime_dir(), name))
+        # A runtime directory this class created is removed with everything in it.
+        if self._private_runtime_dir:
+            shutil.rmtree(self._private_runtime_dir, ignore_errors=True)
