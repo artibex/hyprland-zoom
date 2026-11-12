@@ -3,7 +3,7 @@
 # Used on hyprlang Hyprland and on a Lua config without the engine. Every read-modify-write
 # runs under flock(1) on the state directory, so concurrent `zoomctl in` never lose a step
 # (the 0.1 race: 20 parallel notches lost 17-19 steps).
-# Colour filters are NOT available here: they need the engine's generated shaders.
+# Color filters are NOT available here: they need the engine's generated shaders.
 
 # zoomctl_legacy_tracking_flags — translate a tracking mode to Hyprland's two camera options.
 # Args:    $1 tracking mode (centered|edge|margin|follow)
@@ -67,6 +67,7 @@ zoomctl_legacy_keyword_batch() {
   while read -r option_name option_value; do
     keywords+=("keyword $option_name $option_value")
   done < <(zoomctl_legacy_option_pairs "$1")
+  # One string for `hyprctl --batch`.
   zoomctl_join_by ' ; ' "${keywords[@]}"
 }
 
@@ -94,11 +95,8 @@ zoomctl_legacy_apply() {
 # Returns: 0 always; stdout: integer hundredths (100 when nothing is known)
 # Globals: none
 zoomctl_legacy_current_centi() {
-  local live_zoom
-  # Hyprland is the source of truth; the state file only covers a missing hyprctl answer.
-  live_zoom="$(zoomctl_hyprland_option_number cursor:zoom_factor)" ||
-    live_zoom="$(zoomctl_state_read zoom)" || live_zoom='1.00'
-  zoomctl_float_to_centi "$live_zoom" || printf '100\n'
+  # The shared live-zoom chain (Hyprland, state file, 1.00) feeds the fixed-point math.
+  zoomctl_float_to_centi "$(zoomctl_hyprland_live_zoom)" || printf '100\n'
 }
 
 # zoomctl_legacy_next_centi — step a zoom value by N notches in the configured model (E12).

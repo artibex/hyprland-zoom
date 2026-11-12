@@ -96,7 +96,7 @@ zoomctl_config_apply_compat() {
 zoomctl_config_legacy_tracking() {
   local switch_state
   switch_state="$(zoomctl_validate_bool "$1")" || return 1
-  # centered kept the cursor in the middle; edge was the 0.1 default behaviour.
+  # centered kept the cursor in the middle; edge was the 0.1 default behavior.
   [ "$switch_state" = 'on' ] && printf 'centered\n' || printf 'edge\n'
 }
 

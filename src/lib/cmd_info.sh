@@ -12,14 +12,17 @@ Usage: zoomctl <command> [arguments]
 Zoom:
   in [n]            zoom in by n steps (default 1)
   out [n]           zoom out by n steps
-  zoom <factor>     jump to a zoom factor from 1.00 to 10.00
+  zoom <factor> [--transient]
+                    jump to a zoom factor from 1.00 to 10.00 (--transient: the toggle
+                    keeps its remembered level, for tests)
   toggle            switch between the reset zoom and the last zoom level
   reset             go back to the reset zoom
-  filter [name]     colour filter: on, off, toggle (default) or a filter name
+  filter [name]     color filter: on, off, toggle (default) or a filter name
   tracking <mode>   how the view follows the pointer: centered, edge, margin, follow
 
 Settings:
-  set <key> <value> validate, save and apply one setting (e.g. set step 0.15)
+  set <key> <value> [<key> <value>...]
+                    validate, save and apply settings in one step (e.g. set step 0.15)
   get <key>         print the effective value of one setting
   unset <key>       drop your override of one setting
   reset-config      drop all of your overrides
@@ -51,9 +54,9 @@ zoomctl_command_help() {
 # zoomctl_command_version — print the package version.
 # Args:    none
 # Returns: 0 always; stdout: "zoomctl <version>"
-# Globals: reads ZOOMCTL_VERSION
+# Globals: reads the VERSION file through zoomctl_version
 zoomctl_command_version() {
-  printf 'zoomctl %s\n' "$ZOOMCTL_VERSION"
+  printf 'zoomctl %s\n' "$(zoomctl_version)"
 }
 
 # zoomctl_command_status — print the zoom status.
@@ -73,21 +76,25 @@ zoomctl_command_status() {
 
 # zoomctl_command_setup — wire hyprland-zoom into the Hyprland config.
 # Args:    none
-# Returns: 0 done; 1 failed; 2 usage error
+# Returns: 0 done; 1 failed (the wiring functions print the real cause); 2 usage error
 # Globals: none
 zoomctl_command_setup() {
   [ "$#" -eq 0 ] || { zoomctl_usage_error "setup takes no arguments"; return 2; }
-  # The wiring functions print what they did; only a failure needs an extra message.
-  if ! zoomctl_install_hyprland_include; then
-    zoomctl_error "could not update the Hyprland config (is HOME set?)"
-  fi
+  # The wiring functions print what they did and, on failure, exactly why.
+  zoomctl_install_hyprland_include
 }
 
-# zoomctl_find_settings_app — locate the settings app (installed or in the checkout).
+# zoomctl_find_settings_app — locate the settings app (override, installed, or in the checkout).
 # Args:    none
 # Returns: 0 found; 1 not found; stdout: path or command name
-# Globals: reads ZOOMCTL_SCRIPT_DIR
+# Globals: reads ZOOMCTL_SETTINGS_BIN, ZOOMCTL_SCRIPT_DIR
+# Notes:   ZOOMCTL_SETTINGS_BIN, when set, is the only candidate (tests and packagers use it).
 zoomctl_find_settings_app() {
+  # An explicit path is authoritative: a wrong one must not silently fall through to another app.
+  if [ -n "${ZOOMCTL_SETTINGS_BIN:-}" ]; then
+    [ -x "$ZOOMCTL_SETTINGS_BIN" ] && printf '%s\n' "$ZOOMCTL_SETTINGS_BIN"
+    return
+  fi
   # An installed app on PATH wins; the checkout copy serves developers.
   command -v hyprland-zoom-settings && return 0
   [ -x "${ZOOMCTL_SCRIPT_DIR:-.}/ui/hyprland-zoom-settings" ] || return 1
@@ -105,6 +112,8 @@ zoomctl_command_ui() {
     zoomctl_error "hyprland-zoom-settings is not installed (it needs python-gobject and libadwaita)"
     return 1
   }
+  # The window needs the caller's UTF-8 locale; zoomctl's byte-wise one is for validation only.
+  zoomctl_restore_locale
   exec "$settings_app" "$@"
 }
 
@@ -138,7 +147,7 @@ zoomctl_command_uninstall() {
     read -r -p 'Remove the hyprland-zoom package? [y/N] ' answer
   fi
   case "${answer,,}" in
-    y|yes) zoomctl_run_privileged pacman -Rns hyprland-zoom ;;
+    y|yes) zoomctl_run_privileged pacman -Rs hyprland-zoom ;;
     # Any other answer, including no terminal at all, cancels.
     *) printf 'zoomctl: uninstall cancelled\n' ;;
   esac

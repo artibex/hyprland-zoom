@@ -8,8 +8,17 @@
 # Layout: this file only wires the libraries and dispatches; the logic lives in lib/*.sh.
 set -u -o pipefail
 
-# Directory of this script; the checkout layout and tests find lib/ and the schema from it.
-ZOOMCTL_SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# Remember the caller's locale so programs we exec (editor, settings window) get it back.
+ZOOMCTL_CALLER_LC_ALL="${LC_ALL-}"
+ZOOMCTL_CALLER_LC_ALL_SET="${LC_ALL+1}"
+# Byte-wise locale for every validator, regex and arithmetic below: [A-Za-z0-9], [0-9] and
+# [[:space:]] then match ASCII only, so values like "É" or "٣" can never pass a whitelist.
+LC_ALL=C
+
+# Directory of this script, symlinks resolved (a launcher in ~/.local/bin may point into a
+# checkout); the checkout layout and tests find lib/ and the schema from it.
+ZOOMCTL_SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")"
+ZOOMCTL_SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$ZOOMCTL_SCRIPT_PATH")" && pwd)"
 
 # zoomctl_lib_dir — locate the libraries: next to the script (checkout) or in the share dir.
 # Args:    none
@@ -37,8 +46,9 @@ done
 # Returns: the command's status (0 ok, 1 error, 2 usage)
 # Globals: none
 main() {
-  local command="${1:-help}"
-  [ "$#" -eq 0 ] || shift
+  local command='help'
+  # No argument means help, but an explicitly empty command is a typo and fails (exit 2).
+  [ "$#" -eq 0 ] || { command="$1"; shift; }
   # One arm per command; every arm only calls its command_* function.
   case "$command" in
     in|zoom-in) zoomctl_command_in "$@" ;;  # zoom in by n steps
@@ -46,7 +56,7 @@ main() {
     zoom) zoomctl_command_zoom "$@" ;;  # absolute factor
     toggle) zoomctl_command_toggle "$@" ;;  # reset zoom <-> last zoom
     reset|hard-reset) zoomctl_command_reset "$@" ;;  # back to the reset zoom
-    filter) zoomctl_command_filter "$@" ;;  # colour filter on/off/name
+    filter) zoomctl_command_filter "$@" ;;  # color filter on/off/name
     tracking) zoomctl_command_tracking "$@" ;;  # pointer tracking mode
     set) zoomctl_command_set "$@" ;;  # save one setting
     get) zoomctl_command_get "$@" ;;  # read one setting

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run.sh — single entry point for every test suite (bash suites, shellcheck, Lua runner).
+# run.sh — single entry point for every test suite (bash suites, shellcheck, Lua, GUI, plugin).
 # Usage: tests/run.sh [suite-name...]   (default: all). Exit status 0 only when all pass.
 set -u
 
@@ -26,6 +26,24 @@ run_suite() {
   fi
 }
 
+# run_optional_suite — run a suite that may skip itself (exit status 77) and report it.
+# Args:    $1 suite label; $2.. command and arguments
+# Returns: 0 passed or skipped; 1 failed
+# Globals: none
+run_optional_suite() {
+  local label="$1" output status
+  shift
+  # The status is read explicitly: 77 is the autotools convention for "skipped".
+  output="$("$@" 2>&1)" && status=0 || status=$?
+  # One arm per outcome.
+  case "$status" in
+    0) printf 'ok    %-12s %s\n' "$label" "$(tail -n 1 <<< "$output")" ;;
+    77) printf 'SKIP  %-12s %s\n' "$label" "$(tail -n 1 <<< "$output")" ;;
+    # A failing suite's whole output is shown for diagnosis.
+    *) printf 'FAIL  %-12s\n%s\n' "$label" "$output"; return 1 ;;
+  esac
+}
+
 # run_lint — run shellcheck over the shell sources when it is installed.
 # Args:    none
 # Returns: 0 clean or skipped (with a visible SKIP line); 1 findings
@@ -40,7 +58,8 @@ run_lint() {
   # -x follows the sourced libraries so they are checked in context.
   run_suite lint shellcheck -x -e SC1090,SC1091,SC2034,SC2004 "$REPO_ROOT/src/zoomctl" \
     "$REPO_ROOT"/src/lib/*.sh "$REPO_ROOT/install/post_install.sh" "$REPO_ROOT"/tests/*.sh \
-    "$REPO_ROOT"/tests/lib/*.sh "$REPO_ROOT/tests/fixtures/fake-hyprctl"
+    "$REPO_ROOT"/tests/lib/*.sh "$REPO_ROOT"/tests/fixtures/fake-hypr* \
+    "$REPO_ROOT/tests/integration/test-cli-nested.sh"
 }
 
 # run_lua_suites — run the engine's Lua unit tests (owned by the engine package).
@@ -65,12 +84,18 @@ main() {
   local failures=0 suite
   local -a selected=("$@")
   # No arguments means every suite.
-  [ "${#selected[@]}" -gt 0 ] || selected=("${BASH_SUITES[@]}" lint lua)
+  [ "${#selected[@]}" -gt 0 ] || selected=("${BASH_SUITES[@]}" lint lua gui plugin)
   for suite in "${selected[@]}"; do
-    # Lint and Lua have their own runners; everything else is tests/<name>.sh.
+    # Lint, Lua, GUI and plugin have their own runners; everything else is tests/test-<name>.sh.
     case "$suite" in
       lint) run_lint || failures=$((failures + 1)) ;;
       lua) run_lua_suites || failures=$((failures + 1)) ;;
+      # The GUI and plugin suites skip themselves (77) without GTK or the Hyprland headers.
+      gui) run_optional_suite gui bash "$REPO_ROOT/tests/gui/run.sh" ||
+        failures=$((failures + 1)) ;;
+      # The plugin tests that need no build; the .so is compiled by its own runner.
+      plugin) run_optional_suite plugin bash "$REPO_ROOT/tests/plugin/run.sh" --no-build ||
+        failures=$((failures + 1)) ;;
       # Every other name is a bash suite file tests/test-<name>.sh.
       *) run_suite "$suite" bash "$REPO_ROOT/tests/test-$suite.sh" || failures=$((failures + 1)) ;;
     esac

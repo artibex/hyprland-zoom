@@ -103,8 +103,12 @@ class VersionTests(unittest.TestCase):
 
     def test_code_carries_the_version(self):
         """The CLI, the engine and the plugin report the packaged version."""
-        # The CLI, the engine and the plugin each spell the version in their own way.
-        cli = first_match(r"^ZOOMCTL_VERSION='([^']+)'", read_text('src', 'lib', 'common.sh'))
+        # The CLI reads the VERSION file at run time, so ask the checkout copy itself.
+        cli_run = subprocess.run(['bash', os.path.join(REPO_ROOT, 'src', 'zoomctl'), 'version'],
+                                 capture_output=True, text=True, check=False)
+        # Its answer is "zoomctl <version>"; keep only the version part.
+        cli = first_match(r'^zoomctl (\S+)$', cli_run.stdout.strip())
+        # The engine and the plugin still spell the version in their own sources.
         engine = first_match(r'^M\.VERSION = "([^"]+)"',
                              read_text('src', 'lua', 'hyprland-zoom', 'api.lua'))
         plugin = first_match(r'"artibex", "([^"]+)"', read_text('plugin', 'main.cpp'))

@@ -8,6 +8,8 @@
 #   status     text answered to `repl 'return HyprZoom.status()'`
 #   plugins    text answered to `plugin list`       (default: no plugins loaded)
 #   binds      text answered to `binds`
+#   version    version answered to `-j version`     (default: 0.56.2)
+#   warnings   text answered to `repl 'return HyprZoom.warnings()'` (default: none)
 #   eval_error when present, HyprZoom.* evals fail with this text (engine mode)
 # Every call is appended to calls.log as one line: the arguments joined by single blanks.
 # FAKE_HYPRCTL_LATENCY (seconds) delays zoom reads/writes so races become observable.
@@ -129,9 +131,21 @@ fake_repl() {
   case "$mode:$1" in
     'engine:return type(HyprZoom)') printf 'table\n' ;;
     'engine:return HyprZoom.status()') fake_read status 'engine=lua' ;;
+    'engine:return HyprZoom.warnings()') fake_read warnings 'none' ;;
     'lua-no-engine:'*) printf 'nil\n' ;;
     'hyprlang:'*) fake_refuse_legacy ;;
   esac
+}
+
+# fake_version_json — answer `-j version` with the version from the `version` file.
+# Args:    none
+# Returns: 0 always; stdout: Hyprland-style JSON
+# Globals: reads FAKE_HYPRCTL_DIR
+fake_version_json() {
+  local version_text
+  # The default matches the Hyprland release the tests were written against.
+  version_text="$(fake_read version 0.56.2)"
+  printf '{"version": "%s", "tag": "v%s"}\n' "$version_text" "$version_text"
 }
 
 # fake_dispatch — route one hyprctl invocation.
@@ -146,7 +160,7 @@ fake_dispatch() {
     eval) fake_eval "${2:-}" ;;
     getoption) fake_getoption "${2:-}" ;;
     --batch) fake_batch "${2:-}" ;;
-    version) printf '{"version": "0.56.2", "tag": "v0.56.2"}\n' ;;
+    version) fake_version_json ;;
     plugin) fake_read plugins 'no plugins loaded' ;;
     binds) fake_read binds '' ;;
     keyword) fake_apply_keyword "${2:-}" "${3:-}" ;;
