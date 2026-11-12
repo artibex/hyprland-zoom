@@ -111,7 +111,7 @@ only; older ones deleted), `previous_screen_shader` (user's own shader to restor
 file `last_zoom` under `$XDG_RUNTIME_DIR/zoomctl/` is read once as `saved_zoom` if present.
 
 ### C6 — Status keys (`HyprZoom.status()` / `zoomctl status --porcelain`)
-`engine` (`lua`|`legacy`|`missing`), `version` (package version), `hyprland` (version),
+`engine` (`lua` = engine answering | `missing` = Lua config without the engine, run `zoomctl setup` | `legacy` = hyprlang config, bash fallback | `unreachable` = no compositor), `version` (package version), `hyprland` (version),
 `zoom`, `saved_zoom`, `tracking` (configured), `tracking_effective`, `edge_margin`,
 `plugin` (`loaded`|`missing`), `filter`, `filter_active` (`on`|`off`), `filter_shader` (path or
 `none`), `scroll_event_delay_ms`.
