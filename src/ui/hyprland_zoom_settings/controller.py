@@ -59,6 +59,8 @@ class SettingsController(GObject.Object):
         self._config_in_flight = False
         self._config_refresh_again = False
         self._status_in_flight = False
+        # False until the first status answer arrived, so the banner does not flash at startup.
+        self.status_received = False
 
     # ----- reading ------------------------------------------------------------------------
 
@@ -123,7 +125,9 @@ class SettingsController(GObject.Object):
         # A failing zoomctl is shown as "unreachable", not as an error toast every second.
         status = parse_status(result.stdout) if result.ok else EngineStatus()
         problem = "" if result.ok else result.message
-        if status != self.status or problem != self.status_problem:
+        first_answer = not self.status_received
+        self.status_received = True
+        if first_answer or status != self.status or problem != self.status_problem:
             self.status = status
             self.status_problem = problem
             self.emit("status-changed")

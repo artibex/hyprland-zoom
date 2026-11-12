@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""hyprland-zoom-settings: entry script of the hyprland-zoom settings app (contract C8).
+
+Finds the ``hyprland_zoom_settings`` package next to this script (repository checkout) or in
+``$ZOOMCTL_SHARE_DIR/ui`` / ``/usr/share/hyprland-zoom/ui`` (installed), then runs it.
+"""
+
+# os resolves paths, sys edits the import path and exits.
+import os
+import sys
+
+# Package directory names used by the installed layout and by the checkout.
+PACKAGE_NAME = "hyprland_zoom_settings"
+DEFAULT_SHARE_DIR = "/usr/share/hyprland-zoom"
+
+
+def find_package_parent():
+    """Locate the directory that contains the settings package.
+
+    Returns:
+        The directory to put on ``sys.path``, or None when the package is not found.
+    """
+    # The checkout layout (package beside this script) wins so development runs use the repo.
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    share_dir = os.environ.get("ZOOMCTL_SHARE_DIR") or DEFAULT_SHARE_DIR
+    for candidate in (script_dir, os.path.join(share_dir, "ui")):
+        if os.path.isdir(os.path.join(candidate, PACKAGE_NAME)):
+            return candidate
+    return None
+
+
+def run():
+    """Start the application.
+
+    Returns:
+        Process exit code.
+    """
+    package_parent = find_package_parent()
+    if package_parent is None:
+        print(f"hyprland-zoom-settings: package '{PACKAGE_NAME}' not found", file=sys.stderr)
+        return 1
+    # Importing after the path edit keeps the script usable from any working directory.
+    sys.path.insert(0, package_parent)
+    from hyprland_zoom_settings.app import main
+
+    return main()
+
+
+if __name__ == "__main__":
+    sys.exit(run())

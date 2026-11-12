@@ -6,6 +6,9 @@ The model tests need only the first two; the widget tests add the fake CLI and B
 # os/sys build the import path, pathlib reads files, json drives the fake CLI state.
 import json
 import os
+import shutil
+import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -225,3 +228,86 @@ class FakeZoomctlTestCase(unittest.TestCase):
         """
         # Subprocess results arrive through the main loop, so the loop must keep running.
         pump(lambda: len(self.fake.calls_matching(*prefix)) >= count)
+
+
+class BroadwayDisplay:
+    """A private Broadway (GTK4 in a browser protocol) display, never the live desktop."""
+
+    def __init__(self) -> None:
+        """Prepare an unstarted display.
+
+        Returns:
+            None.
+        """
+        self.daemon: Optional[subprocess.Popen] = None
+        self.name = ""
+        self._sockets_before: set = set()
+
+    @staticmethod
+    def _runtime_dir() -> str:
+        """Find the directory where Broadway keeps its sockets.
+
+        Returns:
+            The runtime directory path.
+        """
+        # Broadway uses XDG_RUNTIME_DIR; /tmp is the fallback for minimal CI containers.
+        return os.environ.get("XDG_RUNTIME_DIR", "/tmp")
+
+    def _free_display_number(self) -> int:
+        """Find a display number whose HTTP port and socket are unused.
+
+        Returns:
+            A free Broadway display number.
+        """
+        for number in range(61, 120):
+            # Broadway listens on 8080 + n; a bind test proves the port is free.
+            probe = socket.socket()
+            try:
+                probe.bind(("127.0.0.1", 8080 + number))
+            except OSError:
+                continue
+            finally:
+                probe.close()
+            socket_name = f"broadway{number + 1}.socket"
+            if not os.path.exists(os.path.join(self._runtime_dir(), socket_name)):
+                return number
+        raise unittest.SkipTest("no free Broadway display number")
+
+    def start(self) -> None:
+        """Start gtk4-broadwayd and point GTK at it.
+
+        Returns:
+            None.
+        """
+        binary = shutil.which("gtk4-broadwayd")
+        if binary is None:
+            raise unittest.SkipTest("gtk4-broadwayd is not installed")
+        self._sockets_before = {
+            name for name in os.listdir(self._runtime_dir()) if name.startswith("broadway")
+        }
+        self.name = f":{self._free_display_number()}"
+        self.daemon = subprocess.Popen(
+            [binary, self.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        )
+        # Removing the Wayland/X11 variables guarantees GTK cannot fall back to the real desktop.
+        for variable in ("WAYLAND_DISPLAY", "DISPLAY"):
+            os.environ.pop(variable, None)
+        os.environ["GDK_BACKEND"] = "broadway"
+        os.environ["BROADWAY_DISPLAY"] = self.name
+        # The daemon needs a moment to create its socket before GTK connects.
+        time.sleep(0.6)
+
+    def stop(self) -> None:
+        """Stop the daemon and delete only the sockets this run created.
+
+        Returns:
+            None.
+        """
+        if self.daemon is None:
+            return
+        self.daemon.terminate()
+        self.daemon.wait(timeout=5)
+        for name in os.listdir(self._runtime_dir()):
+            if name.startswith("broadway") and name not in self._sockets_before:
+                # Only sockets created by this run are removed, never somebody else's.
+                os.remove(os.path.join(self._runtime_dir(), name))
