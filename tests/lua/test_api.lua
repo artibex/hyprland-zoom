@@ -500,6 +500,41 @@ T.case("a shortcut another tool binds is reported through warnings() (R-P1a-09)"
   T.contains(api.warnings(), "SUPER + ALT + I is also bound in your hypr/bindings.lua")
 end)
 
+-- Omarchy's tiling binds as the fake filesystem holds them: the scroll chords and the zoom key the
+-- takeover frees, plus SUPER+ALT+I which the takeover never touches.
+local OMARCHY_TILING_PATH = "/usr/share/omarchy/default/hypr/bindings/tiling.lua"
+local OMARCHY_TILING_BINDS = table.concat({
+  'hl.bind("SUPER + ALT + mouse_down", cycle_next)',
+  'hl.bind("SUPER + ALT + mouse_up", cycle_previous)',
+  'hl.bind("SUPER + CTRL + Z", omarchy_zoom)',
+  'hl.bind("SUPER + ALT + I", something_else)',
+}, "\n")
+
+T.case("Omarchy's bind files are ignored when Omarchy is not loaded (nested instance)", function()
+  -- The files exist on disk (package installed) but this Hyprland never loaded them.
+  local api = new_engine({ omarchy = false, files = { [OMARCHY_TILING_PATH] = OMARCHY_TILING_BINDS } })
+  T.eq(api.warnings(), "none")
+end)
+
+T.case("the takeover frees chords: only the untouched Omarchy chord is reported", function()
+  -- With Omarchy loaded and the takeover on, the freed chords are no collision any more.
+  local api = new_engine({ omarchy = true, files = { [OMARCHY_TILING_PATH] = OMARCHY_TILING_BINDS } })
+  local warnings = api.warnings()
+  T.contains(warnings, "SUPER + ALT + I is also bound in Omarchy bindings/tiling.lua")
+  T.eq(warnings:find("mouse_down", 1, true), nil)
+  T.eq(warnings:find("mouse_up", 1, true), nil)
+  T.eq(warnings:find("SUPER + CTRL + Z", 1, true), nil)
+end)
+
+T.case("with the takeover off and Omarchy loaded the scroll collision is reported", function()
+  -- Nothing is freed, so Omarchy's bind and ours both run on the scroll chords.
+  local api = new_engine({ omarchy = true, user_config = "BIND_TAKEOVER_OMARCHY=off\n",
+    files = { [OMARCHY_TILING_PATH] = OMARCHY_TILING_BINDS } })
+  local warnings = api.warnings()
+  T.contains(warnings, "SUPER + ALT + mouse_down is also bound in Omarchy bindings/tiling.lua")
+  T.contains(warnings, "SUPER + ALT + mouse_up is also bound in Omarchy bindings/tiling.lua")
+end)
+
 T.case("reload adopts a zoom another tool set instead of overwriting it (R-P1a-07)", function()
   -- Omarchy's own bind or `hyprctl keyword` changed the zoom behind the engine's back.
   local api, host = new_engine()

@@ -80,12 +80,10 @@ local function user_config_directory(host)
   return home and (home .. "/.config") or nil
 end
 
--- M.scan — read the chords other tools bind.
--- Args:    host platform adapter
--- Returns: map canonical chord -> short source label ("Omarchy bindings/tiling.lua")
--- Notes:   Lists a directory (spawns `ls`): call it at load time only, never from a callback.
-function M.scan(host)
-  local map = {}
+-- add_chords_of_omarchy — record the chords of every Lua bind module of Omarchy's defaults.
+-- Args:    host platform adapter; map table
+-- Returns: nothing
+local function add_chords_of_omarchy(host, map)
   local omarchy_path = host.getenv("OMARCHY_PATH") or DEFAULT_OMARCHY_PATH
   local directory = omarchy_path .. OMARCHY_BINDINGS_SUBDIRECTORY
   for _, name in ipairs(host.list_dir(directory)) do
@@ -93,6 +91,19 @@ function M.scan(host)
     if name:match("%.lua$") then
       add_chords_of_file(host, directory .. "/" .. name, "Omarchy bindings/" .. name, map)
     end
+  end
+end
+
+-- M.scan — read the chords other tools bind.
+-- Args:    host platform adapter; omarchy_present boolean (the same detection the takeover uses)
+-- Returns: map canonical chord -> short source label ("Omarchy bindings/tiling.lua")
+-- Notes:   Lists a directory (spawns `ls`): call it at load time only, never from a callback.
+--          Omarchy's files are read only when Omarchy is loaded in this compositor; an installed
+--          but unloaded Omarchy (e.g. a nested test instance) binds nothing.
+function M.scan(host, omarchy_present)
+  local map = {}
+  if omarchy_present then
+    add_chords_of_omarchy(host, map)
   end
   local config_directory = user_config_directory(host)
   if config_directory then

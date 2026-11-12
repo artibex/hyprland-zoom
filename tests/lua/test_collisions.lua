@@ -39,11 +39,22 @@ T.case("scan reads Omarchy's bind files and the user's bindings.lua", function()
     'o.bind("SUPER + CTRL + O", "Menu", { menu = "toggle" })\n'
   host.files["/usr/share/omarchy/default/hypr/bindings/notes.txt"] = 'o.bind("SUPER + CTRL + N")'
   host.files["/home/test/.config/hypr/bindings.lua"] = 'hl.bind("SUPER + ALT + I", f)\n'
-  local map = collisions.scan(host)
+  local map = collisions.scan(host, true)
   T.eq(map["ctrl+super+o"], "Omarchy bindings/utilities.lua")
   T.eq(map["alt+super+i"], "your hypr/bindings.lua")
   -- Only .lua files count.
   T.eq(map["ctrl+super+n"], nil)
+end)
+
+T.case("scan skips Omarchy's files when Omarchy is not present but reads the user's", function()
+  -- The package may be installed without being loaded; its binds do not exist then.
+  local host = stub_host.new()
+  host.files["/usr/share/omarchy/default/hypr/bindings/utilities.lua"] =
+    'o.bind("SUPER + CTRL + O", "Menu", { menu = "toggle" })\n'
+  host.files["/home/test/.config/hypr/bindings.lua"] = 'hl.bind("SUPER + ALT + I", f)\n'
+  local map = collisions.scan(host, false)
+  T.eq(map["ctrl+super+o"], nil)
+  T.eq(map["alt+super+i"], "your hypr/bindings.lua")
 end)
 
 T.case("find warns for a shared chord but not for a deliberate takeover", function()

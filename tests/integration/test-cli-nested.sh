@@ -223,7 +223,7 @@ set_phase_env() {
   # The same variables go to the nested compositor, so engine and CLI read the same files.
   ZC_ENV=(ZOOMCTL_STATE_DIR="$WORK/$1/state" ZOOMCTL_USER_CONFIG="$WORK/$1/user/zoom.conf"
     ZOOMCTL_SYSTEM_CONFIG="$WORK/system.conf" ZOOMCTL_SHARE_DIR="$REPO/src/lua"
-    ZOOMCTL_TARGET_HOME="$WORK/home" ZOOMCTL_SETTINGS_BIN="$WORK/no-settings-app")
+    ZOOMCTL_TARGET_HOME="$WORK/home" ZOOMCTL_SETTINGS_BIN="$REPO/src/ui/hyprland-zoom-settings")
 }
 
 # write_lua_config — the user's hyprland.lua before `zoomctl setup`: fixed geometry, no engine.
@@ -458,6 +458,8 @@ check_doctor() {
   expect_contains "doctor: Lua config, engine loaded" "$report" "[ok  ] Lua config, engine loaded"
   expect_contains "doctor: engine include present" "$report" "[ok  ] engine include present"
   expect_contains "doctor: engine warnings answered" "$report" "[ok  ] engine reports no configuration warnings"
+  expect_contains "doctor: settings app found in the checkout" "$report" "[ok  ] settings app found"
+  expect_lacks "doctor: no warning line at all" "$report" "[warn]"
   expect_contains "doctor: scroll_event_delay ok" "$report" "[ok  ] scroll_event_delay is 0 ms"
 }
 
