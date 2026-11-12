@@ -223,7 +223,8 @@ zoomctl_command_doctor() {
   local failures=0
   [ "$#" -eq 0 ] || { zoomctl_usage_error "doctor takes no arguments"; return 2; }
   # The binds and scroll checks read the effective settings.
-  zoomctl_config_load || return 1
+  # Config warnings are reported by their own check below, not twice.
+  zoomctl_config_load 2>/dev/null || return 1
   printf 'zoomctl %s\n' "$ZOOMCTL_VERSION"
   # Order: environment, engine, wiring, settings, extras.
   zoomctl_doctor_hyprland || failures=$((failures + 1))

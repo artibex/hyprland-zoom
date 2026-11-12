@@ -164,7 +164,7 @@ test_flock_race() {
   cp -r "$TEST_ROOT/src/." "$mutant_root/src/"
   cp "$SCHEMA_FILE" "$mutant_root/config/"
   # shellcheck disable=SC2016  # the pattern must contain a literal dollar sign
-  sed -i 's/flock --timeout "\$ZOOMCTL_LOCK_TIMEOUT_SECONDS" 9 || exit 1/true/' \
+  sed -i 's/flock --timeout "\$ZOOMCTL_LOCK_TIMEOUT_SECONDS" 9 || {/true || {/' \
     "$mutant_root/src/lib/state.sh"
   if cmp -s "$mutant_root/src/lib/state.sh" "$TEST_ROOT/src/lib/state.sh"; then
     fail "race mutation applied"

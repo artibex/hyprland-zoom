@@ -116,7 +116,11 @@ zoomctl_state_with_lock() {
   lock_file="$(zoomctl_state_dir)/lock"
   # The subshell owns fd 9; the lock vanishes with it, even when the command fails.
   (
-    flock --timeout "$ZOOMCTL_LOCK_TIMEOUT_SECONDS" 9 || exit 1
+    flock --timeout "$ZOOMCTL_LOCK_TIMEOUT_SECONDS" 9 || {
+      zoomctl_error "could not take the zoom lock within ${ZOOMCTL_LOCK_TIMEOUT_SECONDS}s"
+      exit 1
+    }
+    # The caller's command runs while the lock is held.
     "$@"
   ) 9>"$lock_file"
 }

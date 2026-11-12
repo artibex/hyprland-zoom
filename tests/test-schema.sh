@@ -179,7 +179,29 @@ test_template_shape() {
   assert_eq 0 "$(awk 'length($0) > 80' <<< "$ZC_OUT" | wc -l)" "template: lines wrapped to 80 columns"
 }
 
+# test_lua_helpers — the Lua text builders refuse everything outside the safe character set.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_lua_helpers() {
+  local hostile
+  assert_eq '"SUPER + ALT"' "$(zoomctl_lua_quote 'SUPER + ALT')" "lua quote: safe text"
+  assert_eq '"mouse:274"' "$(zoomctl_lua_quote 'mouse:274')" "lua quote: key with colon"
+  assert_eq '""' "$(zoomctl_lua_quote '')" "lua quote: empty"
+  # shellcheck disable=SC1003  # the backslash-quote sequences are deliberate hostile input
+  for hostile in 'a"b' 'a\' 'a\"' 'a]]' 'a)' 'a;b' 'a/b' $'a\nb' 'a=b' "a'b" 'a,b' 'a(b'; do
+    assert_false "lua quote rejects [${hostile//$'\n'/\\n}]" zoomctl_lua_quote "$hostile"
+  done
+  assert_eq 'HyprZoom.zoom_in(3)' "$(zoomctl_lua_call zoom_in 3)" "lua call: one argument"
+  assert_eq 'HyprZoom.reload()' "$(zoomctl_lua_call reload)" "lua call: no arguments"
+  assert_false "lua call rejects a hostile function name" zoomctl_lua_call 'x(); os.exit' 1
+  assert_eq '{ZOOM_STEP="0.15"}' "$(zoomctl_lua_table_literal 'ZOOM_STEP=0.15')" "lua table: one pair"
+  assert_false "lua table rejects a lower-case key" zoomctl_lua_table_literal 'step=0.15'
+  assert_false "lua table rejects an unsafe value" zoomctl_lua_table_literal 'FILTER=a"b'
+}
+
 test_schema_parse
+test_lua_helpers
 test_schema_defaults_valid
 test_aliases
 test_validators
