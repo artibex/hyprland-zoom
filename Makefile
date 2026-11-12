@@ -98,8 +98,8 @@ qa:
 	  $(PYTHON) tools/qa/comment-runs.py "$$copy" || status=1; rm -f "$$copy"; \
 	done; exit $$status
 
-# Every suite; each is also available on its own below.
-test: test-core test-gui test-plugin test-repo
+# Every suite: test-core runs tests/run.sh, which already includes the GUI and plugin suites.
+test: test-core test-repo
 
 # Bash suites, shellcheck (when installed) and the Lua unit tests.
 test-core:
