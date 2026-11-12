@@ -91,6 +91,7 @@ find_own_instance_dir() {
       return 0
     fi
   done
+  # No lock names our PID: the compositor has not written it yet.
   return 1
 }
 
