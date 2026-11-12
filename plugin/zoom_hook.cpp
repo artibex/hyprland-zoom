@@ -5,6 +5,7 @@
 #include "zoom_hook.hpp"
 
 #include "camera_math.hpp"
+#include "hook_target.hpp"
 #include "plugin_state.hpp"
 
 namespace hyprzoom {
@@ -22,11 +23,13 @@ using ZoomFunction = void (*)(CMonitorZoomController*, CBox&, const Render::SRen
 CameraState readCameraState(const CMonitorZoomController& controller) {
     CameraState state;
     // Field by field, because the two structs are deliberately independent types.
-    state.camera           = Box{controller.m_camera.x, controller.m_camera.y,
-                                 controller.m_camera.w, controller.m_camera.h};
+    const CBox& camera = controller.m_camera;
+    state.camera       = Box{camera.x, camera.y, camera.w, camera.h};
+    // The three scalars have identical meaning in Hyprland and in the maths.
     state.lastZoomLevel    = controller.m_lastZoomLevel;
     state.resetCameraState = controller.m_resetCameraState;
-    state.padCamEdges      = controller.m_padCamEdges;
+    // The anti-jerk flag must survive hook on/off switches, so it is copied too.
+    state.padCamEdges = controller.m_padCamEdges;
     return state;
 }
 
@@ -34,8 +37,10 @@ CameraState readCameraState(const CMonitorZoomController& controller) {
 /// @param state Result of updateCamera.
 /// @param controller Per-monitor zoom controller, updated in place.
 void writeCameraState(const CameraState& state, CMonitorZoomController& controller) {
-    // The native code reads these members again next frame, so they must stay in sync.
-    controller.m_camera           = CBox(state.camera.x, state.camera.y, state.camera.w, state.camera.h);
+    // Hyprland reads these members again next frame, so they must stay in sync.
+    const Box& camera   = state.camera;
+    controller.m_camera = CBox(camera.x, camera.y, camera.w, camera.h);
+    // The scalars follow the same rule as the box.
     controller.m_lastZoomLevel    = state.lastZoomLevel;
     controller.m_resetCameraState = state.resetCameraState;
     controller.m_padCamEdges      = state.padCamEdges;
@@ -44,6 +49,7 @@ void writeCameraState(const CameraState& state, CMonitorZoomController& controll
 /// Reads `plugin:hyprzoom:edge_margin`, falling back to the native margin without a value.
 /// @return Margin as stored (the maths clamps it).
 double configuredEdgeMargin() {
+    // A missing value object only happens during teardown; native behaviour is the safe default.
     const auto& value = pluginState().edgeMargin;
     return value ? static_cast<double>(value->value()) : kNativeEdgeMargin;
 }
@@ -51,6 +57,7 @@ double configuredEdgeMargin() {
 /// Reads `plugin:hyprzoom:enabled`; an unregistered value counts as enabled.
 /// @return False when the user switched the plugin off.
 bool pluginEnabled() {
+    // Same teardown reasoning as for the margin: only an explicit `false` disables the plugin.
     const auto& value = pluginState().enabled;
     return value ? value->value() : true;
 }
@@ -59,10 +66,35 @@ bool pluginEnabled() {
 /// @param controller Per-monitor zoom controller.
 /// @param result Output box, filled by the original code.
 /// @param renderData Current render data.
-void callOriginal(CMonitorZoomController* controller, CBox& result, const Render::SRenderData& renderData) {
+void callOriginal(CMonitorZoomController* controller, CBox& result,
+                  const Render::SRenderData& renderData) {
     // m_original points at the relocated first instructions followed by a jump back.
     const auto original = reinterpret_cast<ZoomFunction>(pluginState().zoomHook->m_original);
+    // The trampoline takes the same arguments as the hooked member function.
     original(controller, result, renderData);
+}
+
+/// Collects the per-frame inputs of the maths from Hyprland's state and the config.
+/// @param controller Per-monitor zoom controller (provides the anchor).
+/// @param renderData Current render data (monitor).
+/// @return The frame input for updateCamera.
+CameraInput readFrameInput(CMonitorZoomController& controller,
+                           const Render::SRenderData& renderData) {
+    // Hyprland reads this option the same way; the static binds the lookup once.
+    static auto zoomRigid = CConfigValue<Config::INTEGER>("cursor:zoom_rigid");
+    // The anchor is the pointer position (or the pinned anchor of a gesture) in the monitor.
+    const auto monitor = renderData.pMonitor;
+    const auto anchor  = controller.getAnchor(monitor);
+    // Translate Hyprland's vector types into the plain structs.
+    CameraInput input;
+    input.pointer     = {anchor.x, anchor.y};
+    input.monitorSize = {monitor->m_size.x, monitor->m_size.y};
+    // The zoom factor of the frame being rendered, as Hyprland's own code reads it.
+    input.zoom = g_pHyprRenderer->m_renderData.mouseZoomFactor;
+    // The user's margin, read fresh so config changes apply on the next frame.
+    input.edgeMargin = configuredEdgeMargin();
+    input.rigid      = *zoomRigid != 0;
+    return input;
 }
 
 /// Replacement function: same maths as Hyprland with an adjustable safe-box margin.
@@ -76,53 +108,35 @@ void hookedZoomWithDetachedCamera(CMonitorZoomController* controller, CBox& resu
         callOriginal(controller, result, renderData);
         return;
     }
-    static auto zoomRigid = CConfigValue<Config::INTEGER>("cursor:zoom_rigid");
-
-    const auto  monitor = renderData.pMonitor;
-    const auto  anchor  = controller->getAnchor(monitor);
-    CameraInput input;
-    input.pointer     = {anchor.x, anchor.y};
-    input.monitorSize = {monitor->m_size.x, monitor->m_size.y};
-    input.zoom        = g_pHyprRenderer->m_renderData.mouseZoomFactor;
-    input.edgeMargin  = configuredEdgeMargin();
-    input.rigid       = *zoomRigid != 0;
-
-    CameraState state = readCameraState(*controller);
+    // Hyprland state in, plain structs through the maths, Hyprland state out.
+    const CameraInput input = readFrameInput(*controller, renderData);
+    CameraState state       = readCameraState(*controller);
     updateCamera(state, input);
+    // Persist the result so the next frame (and the original code, if re-enabled) continue here.
     writeCameraState(state, *controller);
-
-    const Box box = cameraToMonitorBox(state, input.monitorSize, input.zoom, monitor->m_scale);
-    result        = CBox(box.x, box.y, box.w, box.h);
+    // Project the camera like Hyprland does; its caller applies the final monitor clamp.
+    const Box box =
+        cameraToMonitorBox(state, input.monitorSize, input.zoom, renderData.pMonitor->m_scale);
+    result = CBox(box.x, box.y, box.w, box.h);
 }
 
 } // namespace
 
-std::optional<void*> selectHookTarget(const std::vector<SFunctionMatch>& matches, std::string& error) {
-    // More than one candidate means the symbol table changed shape: refuse rather than guess.
-    if (matches.size() != 1) {
-        error = std::format("expected exactly one '{}' symbol in Hyprland, found {}", kHookedSymbolName,
-                            matches.size());
-        return std::nullopt;
-    }
-    // The substring search is loose; the demangled name proves it is the intended member function.
-    if (!matches.front().demangled.contains(kHookedDemangledName)) {
-        error = std::format("symbol '{}' is not {}", matches.front().demangled, kHookedDemangledName);
-        return std::nullopt;
-    }
-    return matches.front().address;
-}
-
 std::optional<std::string> installZoomHook(HANDLE handle) {
+    // The search shells out to `nm`; it finds nothing when the symbol is gone or nm is absent.
     std::string error;
-    // The search shells out to `nm`; it returns nothing when the symbol is missing or nm is absent.
-    const auto  target = selectHookTarget(HyprlandAPI::findFunctionsByName(handle, kHookedSymbolName), error);
+    const auto matches = HyprlandAPI::findFunctionsByName(handle, kHookedSymbolName);
+    // Exactly one verified match is required, otherwise nothing is hooked.
+    const auto target = selectHookTarget(matches, error);
     if (!target)
         return error;
-
-    auto* hook = HyprlandAPI::createFunctionHook(handle, *target, reinterpret_cast<void*>(&hookedZoomWithDetachedCamera));
+    // Hyprland builds the trampoline; our function receives the calls from then on.
+    auto* hook = HyprlandAPI::createFunctionHook(
+        handle, *target, reinterpret_cast<void*>(&hookedZoomWithDetachedCamera));
     // hook() patches the function entry; it fails when the prologue cannot be relocated safely.
     if (!hook || !hook->hook())
         return "could not patch the function entry (unsupported prologue?)";
+    // Keep the hook: the hook function needs m_original, and removeZoomHook needs the pointer.
     pluginState().zoomHook = hook;
     return std::nullopt;
 }
@@ -131,6 +145,7 @@ void removeZoomHook(HANDLE handle) {
     // Unhooking restores the original bytes, so the native camera code runs again.
     if (pluginState().zoomHook)
         HyprlandAPI::removeFunctionHook(handle, pluginState().zoomHook);
+    // Clear the pointer so a second call (or a late frame) cannot use a dead hook.
     pluginState().zoomHook = nullptr;
 }
 

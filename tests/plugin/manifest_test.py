@@ -7,6 +7,7 @@ stdlib TOML parser and cross-checks the manifest against plugin/Makefile and the
 
 Usage: tests/plugin/manifest_test.py   (exit 0 = valid)
 """
+
 import re
 import sys
 import tomllib  # stdlib since Python 3.11, so no third-party TOML parser is needed
@@ -65,8 +66,11 @@ class ManifestTest(unittest.TestCase):
         makefile = (REPO_ROOT / "plugin" / "Makefile").read_text()
         target = Path(self.manifest["hyprzoom"]["output"]).name
         # A rule line `hyprzoom.so:` at the start of a line proves the target exists.
-        self.assertRegex(makefile, re.compile(rf"^{re.escape(target)}:", re.MULTILINE),
-                         "Makefile has no such target")
+        self.assertRegex(
+            makefile,
+            re.compile(rf"^{re.escape(target)}:", re.MULTILINE),
+            "Makefile has no such target",
+        )
         # The directory part must be the plugin folder, where `make -C plugin` writes it.
         self.assertEqual(Path(self.manifest["hyprzoom"]["output"]).parent.as_posix(), "plugin")
 

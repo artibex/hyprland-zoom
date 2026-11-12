@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # run.sh — runs the hyprzoom plugin tests that need no running Hyprland.
-#   1. camera_math_test        — pure maths, plain g++ (always runs)
+#   1. camera_math_test + hook_target_test — pure logic, plain g++ (always runs)
 #   2. native_equivalence_test — margin 0.05 == Hyprland's code (needs hyprutils headers)
 #   3. schema consistency      — plugin margin range matches config/settings.schema
 #   4. manifest_test.py        — hyprpm.toml obeys hyprpm's parser rules
@@ -37,15 +37,19 @@ run_step() {
   esac
 }
 
-# run_unit_test — compiles and runs the pure camera maths test.
+# run_unit_tests — compiles and runs the Hyprland-free unit tests (camera maths, hook target).
 # Args:    none
-# Returns: exit status of the test binary
+# Returns: 0 all passed; 1 any build error or failed test
 # Globals: reads repo_root, build_dir
-run_unit_test() {
-  # -Werror keeps the header warning-free, which the plugin build also demands.
-  g++ -std=c++20 -Wall -Wextra -Werror -O1 \
-    "$repo_root/tests/plugin/camera_math_test.cpp" -o "$build_dir/camera_math_test" || return 1
-  "$build_dir/camera_math_test"
+run_unit_tests() {
+  local test_name
+  # Each test is one source file with the same name as its binary.
+  for test_name in camera_math_test hook_target_test; do
+    # -Werror keeps the headers warning-free, which the plugin build also demands.
+    g++ -std=c++20 -Wall -Wextra -Werror -O1 "$repo_root/tests/plugin/$test_name.cpp" \
+      -o "$build_dir/$test_name" || return 1
+    "$build_dir/$test_name" || return 1
+  done
 }
 
 # run_equivalence_test — compares the maths with a transcription of Hyprland's own code.
@@ -92,7 +96,7 @@ run_schema_check() {
 # Globals: reads repo_root; writes failures
 main() {
   # Pure maths first: fastest feedback, no dependencies beyond g++.
-  run_step "camera maths unit tests" run_unit_test
+  run_step "unit tests (camera maths, hook target)" run_unit_tests
   run_step "native equivalence (margin 0.05)" run_equivalence_test
   # Keeps the C++ constants and the schema (single source of truth, E3) from drifting.
   run_step "edge-margin range matches settings.schema" run_schema_check

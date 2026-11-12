@@ -11,10 +11,12 @@ PKGS     := hyprland pixman-1 libdrm pangocairo libinput libudev wayland-server 
 # --no-gnu-unique keeps the plugin unloadable (dlclose) with libstdc++ statics.
 CXXFLAGS ?= -O2 -g
 CXXFLAGS += -shared -fPIC --no-gnu-unique -std=c++2c -Wall -Wextra -DWLR_USE_UNSTABLE \
-            $(shell pkg-config --cflags $(PKGS))
+            $(shell pkg-config --cflags $(PKGS)) $(EXTRA_CXXFLAGS)
+# Hook for tests and packagers: extra flags that cannot clobber the required ones above.
+EXTRA_CXXFLAGS ?=
 # Everything the .so consists of, in dependency order.
 SOURCES  := main.cpp zoom_hook.cpp
-HEADERS  := camera_math.hpp hyprland_includes.hpp plugin_state.hpp zoom_hook.hpp
+HEADERS  := camera_math.hpp hook_target.hpp hyprland_includes.hpp plugin_state.hpp zoom_hook.hpp
 
 # Default target: the loadable plugin.
 all: hyprzoom.so

@@ -37,16 +37,19 @@ void requireMatchingHyprland(HANDLE handle) {
 /// @param handle Plugin handle.
 /// @throws std::runtime_error when Hyprland refuses a value.
 void registerConfigValues(HANDLE handle) {
+    // Both config values live in the shared plugin state, where the hook can read them.
     auto& state = hyprzoom::pluginState();
     // Range and default mirror config/settings.schema (ZOOM_EDGE_MARGIN) and contract C9.
     state.edgeMargin = makeShared<Config::Values::CFloatValue>(
         "plugin:hyprzoom:edge_margin",
         "Zoom edge margin: fraction of the zoomed view per side (0.00-0.45)",
         static_cast<Config::FLOAT>(hyprzoom::kNativeEdgeMargin),
-        Config::Values::SFloatValueOptions{.min = static_cast<Config::FLOAT>(hyprzoom::kMinEdgeMargin),
-                                           .max = static_cast<Config::FLOAT>(hyprzoom::kMaxEdgeMargin)});
+        Config::Values::SFloatValueOptions{
+            .min = static_cast<Config::FLOAT>(hyprzoom::kMinEdgeMargin),
+            .max = static_cast<Config::FLOAT>(hyprzoom::kMaxEdgeMargin)});
+    // The switch lets users fall back to Hyprland's camera without unloading the plugin.
     state.enabled = makeShared<Config::Values::CBoolValue>(
-        "plugin:hyprzoom:enabled", "Use the adjustable margin (false: Hyprland's native camera)", true);
+        "plugin:hyprzoom:enabled", "Use the adjustable margin (false: native camera)", true);
 
     // addConfigValueV2 also binds the value, so value() works right after this call.
     if (!HyprlandAPI::addConfigValueV2(handle, state.edgeMargin) ||
@@ -68,8 +71,11 @@ APICALL EXPORT std::string PLUGIN_API_VERSION() {
 /// @param handle Plugin handle, kept for later API calls.
 /// @return Name, description, author and version shown by `hyprctl plugin list`.
 APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
+    // The hook and the exit function need the handle later.
     hyprzoom::pluginState().handle = handle;
+    // Fail early (and loudly) on a Hyprland build the plugin was not compiled for.
     requireMatchingHyprland(handle);
+    // Register the options before hooking so the hook never sees an unbound value.
     registerConfigValues(handle);
 
     // Refuse to run (and say why) rather than hook something that is not the expected function.
@@ -77,10 +83,12 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         notifyError(handle, std::format("not hooked: {}", *reason));
         throw std::runtime_error("[hyprzoom] hook refused: " + *reason);
     }
+    // These strings show up in `hyprctl plugin list` and `hl.get_loaded_plugins()`.
     return {kPluginName, "Adjustable edge margin for the detached zoom camera", "artibex", "0.2.0"};
 }
 
 /// Plugin exit: restores Hyprland's own camera code before the .so is unloaded.
 APICALL EXPORT void PLUGIN_EXIT() {
+    // Hyprland removes hooks after exit anyway; doing it here keeps the order explicit.
     hyprzoom::removeZoomHook(hyprzoom::pluginState().handle);
 }

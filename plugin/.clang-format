@@ -1,0 +1,11 @@
+# Style of the hyprzoom plugin and its tests: 100 columns, 4 spaces, aligned trailing comments.
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 100
+AlignConsecutiveAssignments: Consecutive
+AlignConsecutiveDeclarations: None
+AlignTrailingComments: true
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+PointerAlignment: Left
+SortIncludes: Never

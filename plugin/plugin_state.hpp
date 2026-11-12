@@ -11,10 +11,10 @@ namespace hyprzoom {
 
 /// Everything the hook needs from the plugin at frame time.
 struct PluginState {
-    HANDLE                           handle     = nullptr; ///< Plugin handle given by Hyprland.
-    SP<Config::Values::CFloatValue>  edgeMargin;           ///< `plugin:hyprzoom:edge_margin`.
-    SP<Config::Values::CBoolValue>   enabled;              ///< `plugin:hyprzoom:enabled`.
-    CFunctionHook*                   zoomHook   = nullptr; ///< Trampoline hook, owned by Hyprland.
+    HANDLE handle = nullptr;                    ///< Plugin handle given by Hyprland.
+    SP<Config::Values::CFloatValue> edgeMargin; ///< `plugin:hyprzoom:edge_margin`.
+    SP<Config::Values::CBoolValue> enabled;     ///< `plugin:hyprzoom:enabled`.
+    CFunctionHook* zoomHook = nullptr;          ///< Trampoline hook, owned by Hyprland.
 };
 
 /// Accessor for the single plugin state instance.
