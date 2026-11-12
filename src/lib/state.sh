@@ -65,9 +65,10 @@ zoomctl_state_write() {
   # The runtime directory is gone after a reboot, so make sure it exists.
   zoomctl_state_ensure_dir ||
     { zoomctl_error "cannot create the state directory $state_directory"; return 1; }
+  # The draft sits beside the state file so the final rename stays on one filesystem.
   draft_file="$(mktemp "$state_directory/.state.XXXXXX")" ||
     { zoomctl_error "cannot write in the state directory $state_directory"; return 1; }
-  # The old keys first, then the new value.
+  # The old keys first, then the new value; the draft is dropped when writing fails.
   { zoomctl_state_copy_without "$1"; printf '%s=%s\n' "$1" "$2"; } > "$draft_file" ||
     { rm -f -- "$draft_file"; zoomctl_error "cannot write the zoom state"; return 1; }
   # Same-directory rename keeps the replacement atomic for the engine reading it.

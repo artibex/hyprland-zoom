@@ -53,26 +53,32 @@ zoomctl_command_out() {
 }
 
 # zoomctl_split_zoom_arguments — separate the factor from the optional --transient flag.
-# Args:    $1 name of a variable for the factor; $2 name of a variable for the flag (0|1); $3.. words
+# Args:    $1 variable name for the factor; $2 variable name for the flag (0|1); $3.. words
 # Returns: 0 one factor and at most one flag; 2 anything else (usage error)
 # Globals: writes the two named variables
 zoomctl_split_zoom_arguments() {
   local -n factor_ref="$1" transient_ref="$2"
   local word
+  # The remaining words are the user's arguments.
   shift 2
+  # Defaults: no factor yet, not transient.
   factor_ref=''
   transient_ref=0
   # The flag may stand before or after the factor; a second factor is a mistake.
   for word in "$@"; do
     if [ "$word" = '--transient' ]; then
+      # Position does not matter for the flag.
       transient_ref=1
     elif [ -z "$factor_ref" ]; then
+      # The first other word is the factor; it is validated by the caller.
       factor_ref="$word"
     else
+      # A second factor cannot be told apart from a typo.
       zoomctl_usage_error "zoom takes one factor and optionally --transient"
       return 2
     fi
   done
+  # A bare --transient has no factor to apply.
   [ -n "$factor_ref" ] || { zoomctl_usage_error "zoom needs a factor"; return 2; }
 }
 
@@ -90,6 +96,7 @@ zoomctl_command_zoom() {
     zoomctl_error "'$factor' is not a zoom factor ($(zoomctl_schema_allowed_text ZOOM_MAX))"
     return 1
   }
+  # The canonical text (two decimals) is what the engine and the fallback receive.
   factor="$(zoomctl_schema_validate ZOOM_MAX "$factor")"
   # A transient zoom (a UI test) tells the engine not to remember the level for the toggle.
   lua_call="$(zoomctl_lua_call set_zoom "$factor")"
