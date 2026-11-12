@@ -58,29 +58,6 @@ is_instance_running() {
   kill -0 "$(cat "$STATE_DIR/pid")" 2> /dev/null
 }
 
-# list_wayland_sockets — print the names of the wayland sockets in the runtime directory.
-# Args:    none
-# Returns: 0 always; stdout: one socket name (wayland-N) per line
-# Globals: reads RUNTIME_DIR
-list_wayland_sockets() {
-  local socket_path
-  # A glob (not `ls | grep`) is safe for any file name; only real sockets count.
-  for socket_path in "$RUNTIME_DIR"/wayland-[0-9]*; do
-    [[ -S "$socket_path" ]] && basename "$socket_path"
-  done
-  return 0
-}
-
-# snapshot_runtime_dir — remember which sockets exist before the start.
-# Args:    none
-# Returns: 0 always; writes before.sig and before.wl into the state directory
-# Globals: reads RUNTIME_DIR, STATE_DIR
-snapshot_runtime_dir() {
-  # Instance directories and wayland sockets that already belong to other sessions.
-  { ls "$RUNTIME_DIR/hypr" 2> /dev/null || true; } | sort > "$STATE_DIR/before.sig"
-  list_wayland_sockets | sort > "$STATE_DIR/before.wl"
-}
-
 # launch_hyprland — start the nested compositor in the background.
 # Args:    $1 absolute path of the Lua config
 # Returns: 0 always; writes the PID file and stdout.log
@@ -97,12 +74,33 @@ launch_hyprland() {
   echo $! > "$STATE_DIR/pid"
 }
 
-# wait_for_new_signature — wait until the nested instance opened its control socket.
+# find_own_instance_dir — find the instance directory whose lock file names the PID we started.
 # Args:    none
-# Returns: 0 and the new signature on stdout; 1 when the process died or nothing appeared
+# Returns: 0 and the directory path on stdout; 1 when no lock file carries our PID (yet)
 # Globals: reads RUNTIME_DIR, STATE_DIR
-wait_for_new_signature() {
-  local new_signature
+# Notes:   Hyprland writes "<pid>\n<wayland socket>\n" into <instance>/hyprland.lock, so the PID
+#          identifies our instance even while other agents start instances in parallel.
+find_own_instance_dir() {
+  local own_pid lock_file
+  own_pid="$(cat "$STATE_DIR/pid")"
+  # A glob (not `ls`) is safe for any name; missing or unreadable locks are simply skipped.
+  for lock_file in "$RUNTIME_DIR"/hypr/*/hyprland.lock; do
+    # The first line of the lock file is the owning compositor's PID.
+    if [[ -f "$lock_file" && "$(head -n 1 "$lock_file" 2> /dev/null)" == "$own_pid" ]]; then
+      dirname "$lock_file"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# wait_for_own_instance — wait until our compositor opened its control socket.
+# Args:    none
+# Returns: 0 and the signature on stdout (the wayland socket name goes into the wl file);
+#          1 when the process died or nothing appeared
+# Globals: reads RUNTIME_DIR, STATE_DIR; writes the wl file
+wait_for_own_instance() {
+  local instance_dir
   # Poll for up to 20 seconds.
   for _ in $(seq 1 100); do
     sleep 0.2
@@ -111,27 +109,17 @@ wait_for_new_signature() {
       echo "Hyprland exited early; see $STATE_DIR/stdout.log" >&2
       return 1
     fi
-    # The new instance is the signature directory that was not there before.
-    new_signature="$({ ls "$RUNTIME_DIR/hypr" 2> /dev/null || true; } | sort \
-      | comm -13 "$STATE_DIR/before.sig" - | head -1)"
-    # The instance is ready when its control socket exists.
-    if [[ -n "$new_signature" && -S "$RUNTIME_DIR/hypr/$new_signature/.socket.sock" ]]; then
-      echo "$new_signature"
+    # Ready when the lock names our PID and the control socket exists.
+    if instance_dir="$(find_own_instance_dir)" && [[ -S "$instance_dir/.socket.sock" ]]; then
+      # The second lock line is the nested compositor's own wayland socket.
+      sed -n '2p' "$instance_dir/hyprland.lock" > "$STATE_DIR/wl"
+      basename "$instance_dir"
       return 0
     fi
   done
   # Timed out: report it so the caller can stop the half-started process.
-  echo "no new instance signature appeared" >&2
+  echo "no instance with our PID appeared" >&2
   return 1
-}
-
-# record_wayland_display — store the wayland socket the nested instance created.
-# Args:    none
-# Returns: 0 always; writes the wl file
-# Globals: reads RUNTIME_DIR, STATE_DIR
-record_wayland_display() {
-  # The new socket is whichever wayland-N did not exist before the start.
-  list_wayland_sockets | sort | comm -13 "$STATE_DIR/before.wl" - | head -1 > "$STATE_DIR/wl"
 }
 
 # create_headless_output — add the virtual 1280x720 output and focus it.
@@ -164,14 +152,12 @@ command_start() {
   if is_instance_running; then
     die "already running: $(read_state_file sig)"
   fi
-  # Forget stale values, then record what exists so the new instance can be identified.
+  # Forget stale values; the instance is identified later by the PID we are about to record.
   rm -f "$STATE_DIR"/{sig,pid,wl}
-  snapshot_runtime_dir
   launch_hyprland "$config_path"
   # Wait until the control socket is up; a failure leaves the PID file for `stop`.
-  new_signature="$(wait_for_new_signature)" || return 1
+  new_signature="$(wait_for_own_instance)" || return 1
   echo "$new_signature" > "$STATE_DIR/sig"
-  record_wayland_display
   # Opt out with NESTED_HEADLESS_OUTPUT=0 when the config creates its own output.
   if [[ "${NESTED_HEADLESS_OUTPUT:-1}" == 1 ]]; then
     create_headless_output "$new_signature"
