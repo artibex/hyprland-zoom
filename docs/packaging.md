@@ -125,7 +125,7 @@ GitHub Actions (`.github/workflows/`, actions pinned to major versions, minimal
 | `release.yml` | tag `v*` | builds the package, attaches it with `sha256sums` to a GitHub release |
 
 The plugin job builds against whatever Hyprland Arch currently ships. The plugin supports
-0.56.x; a red `plugin` job after a Hyprland update is the signal that the hook needs porting
+0.56.x and 0.57.x (picked at compile time); a red `plugin` job after a Hyprland update is the signal that the hook needs porting
 (see the [roadmap](roadmap.md)).
 
 GitHub Pages must be switched to *GitHub Actions* as its source once

@@ -102,7 +102,7 @@ to the window underneath, see [troubleshooting](docs/troubleshooting.md).
 Without it, `margin` tracking behaves like `edge` (Hyprland's fixed 5 % margin) and the
 settings window says so. With it you get a margin slider from 0.00 to 0.45. The plugin is built
 on your machine by `hyprpm` because plugins are tied to the exact Hyprland build; it supports
-Hyprland 0.56.x for now. Install steps, autostart and update behavior:
+Hyprland 0.56.x and 0.57.x. Install steps, autostart and update behavior:
 [docs/plugin.md](docs/plugin.md).
 
 ## Configure

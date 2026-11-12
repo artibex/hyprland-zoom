@@ -17,9 +17,9 @@ This page lists what is still open. Nothing here is promised for a date.
 
 ## Technical follow-ups
 
-- **Plugin and newer Hyprland**: the `hyprzoom` plugin hooks one private function that
-  Hyprland 0.57 changed. It supports 0.56.x only; a port (or a native Hyprland option for the
-  margin) would make `margin` tracking work without a plugin.
+- **Plugin and newer Hyprland**: the `hyprzoom` plugin hooks one private function and supports
+  0.56.x and 0.57.x; every later Hyprland needs a check (CI `plugin` job). A native Hyprland
+  option for the margin (upstream patch) would make `margin` tracking work without a plugin.
 - **hyprpm pins**: `hyprpm.toml` has no `commit_pins` yet; add one row per tested Hyprland
   release when tagging.
 - **hyprpm end-to-end test in CI**: the manifest and build are tested, `hyprpm add/enable`
