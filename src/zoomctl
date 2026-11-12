@@ -56,7 +56,7 @@ main() {
     zoom) zoomctl_command_zoom "$@" ;;  # absolute factor
     toggle) zoomctl_command_toggle "$@" ;;  # reset zoom <-> last zoom
     reset|hard-reset) zoomctl_command_reset "$@" ;;  # back to the reset zoom
-    filter) zoomctl_command_filter "$@" ;;  # colour filter on/off/name
+    filter) zoomctl_command_filter "$@" ;;  # color filter on/off/name
     tracking) zoomctl_command_tracking "$@" ;;  # pointer tracking mode
     set) zoomctl_command_set "$@" ;;  # save one setting
     get) zoomctl_command_get "$@" ;;  # read one setting

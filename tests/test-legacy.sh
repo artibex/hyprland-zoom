@@ -113,6 +113,22 @@ test_toggle_reset_zoom() {
   assert_status 0 "toggle: nothing to restore is not an error"
 }
 
+# test_transient_zoom — a transient zoom moves the view but leaves the toggle's level alone.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_transient_zoom() {
+  reset_sandbox
+  set_fake_mode hyprlang
+  run_zoomctl zoom 2.5
+  run_zoomctl toggle
+  run_zoomctl zoom 4 --transient
+  assert_status 0 "transient: exit status"
+  assert_eq "4.00" "$(fake_zoom)" "transient: the zoom is applied"
+  assert_eq "saved_zoom=2.50" "$(grep '^saved_zoom=' "$ZC_STATE_DIR/state")" \
+    "transient: the remembered toggle level is untouched"
+}
+
 # test_state_and_01_compat — state dir mode and the 0.1 last_zoom file.
 # Args:    none
 # Returns: 0 always
@@ -212,6 +228,7 @@ test_flock_missing() {
 test_option_strings
 test_step_math
 test_toggle_reset_zoom
+test_transient_zoom
 test_state_and_01_compat
 test_filter_unsupported
 test_flock_race

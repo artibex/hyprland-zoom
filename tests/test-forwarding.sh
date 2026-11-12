@@ -24,6 +24,8 @@ test_zoom_forwarding() {
   for command_line in 'in:HyprZoom.zoom_in(1)' 'in 3:HyprZoom.zoom_in(3)' 'in 007:HyprZoom.zoom_in(7)' \
     'out:HyprZoom.zoom_out(1)' 'out 2:HyprZoom.zoom_out(2)' 'toggle:HyprZoom.toggle()' \
     'reset:HyprZoom.reset()' 'zoom 2.5:HyprZoom.set_zoom(2.50)' 'zoom 10:HyprZoom.set_zoom(10.00)' \
+    'zoom 2.5 --transient:HyprZoom.set_zoom(2.50, false)' \
+    'zoom --transient 3:HyprZoom.set_zoom(3.00, false)' \
     'filter:HyprZoom.filter("toggle")' 'filter on:HyprZoom.filter("on")' \
     'filter OFF:HyprZoom.filter("off")' 'filter smart-invert:HyprZoom.filter("smart-invert")' \
     'filter Grayscale:HyprZoom.filter("grayscale")'; do
@@ -50,6 +52,7 @@ test_injection_rejected() {
   # Each case is one command line; '|' separates the arguments so no shell parsing is involved.
   for arguments in 'in|1)os.exit()' 'in|0' 'in|101' 'in|-1' 'in|1.5' 'in|1|2' 'out|1;1' \
     'zoom|11' 'zoom|0.5' 'zoom|abc' 'zoom|2)os.exit()' 'zoom' 'zoom|1|2' \
+    'zoom|--transient' 'zoom|2|3|--transient' 'zoom|--transient|x)os.exit()' \
     'filter|nope' 'filter|x")os.exit()--' 'filter|on|off' 'toggle|now' 'reset|now'; do
     IFS='|' read -ra argument_list <<< "$arguments"
     run_zoomctl "${argument_list[@]}"

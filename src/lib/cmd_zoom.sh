@@ -52,23 +52,50 @@ zoomctl_command_out() {
   zoomctl_command_step out "$@"
 }
 
+# zoomctl_split_zoom_arguments — separate the factor from the optional --transient flag.
+# Args:    $1 name of a variable for the factor; $2 name of a variable for the flag (0|1); $3.. words
+# Returns: 0 one factor and at most one flag; 2 anything else (usage error)
+# Globals: writes the two named variables
+zoomctl_split_zoom_arguments() {
+  local -n factor_ref="$1" transient_ref="$2"
+  local word
+  shift 2
+  factor_ref=''
+  transient_ref=0
+  # The flag may stand before or after the factor; a second factor is a mistake.
+  for word in "$@"; do
+    if [ "$word" = '--transient' ]; then
+      transient_ref=1
+    elif [ -z "$factor_ref" ]; then
+      factor_ref="$word"
+    else
+      zoomctl_usage_error "zoom takes one factor and optionally --transient"
+      return 2
+    fi
+  done
+  [ -n "$factor_ref" ] || { zoomctl_usage_error "zoom needs a factor"; return 2; }
+}
+
 # zoomctl_command_zoom — jump to an absolute zoom factor.
-# Args:    $1 factor (1.00-10.00)
+# Args:    $1 factor (1.00-10.00); optional --transient (the saved toggle level stays untouched)
 # Returns: 0 done; 1 failed; 2 usage error
 # Globals: none
 zoomctl_command_zoom() {
-  local factor
-  [ "$#" -eq 1 ] || { zoomctl_usage_error "zoom needs exactly one factor"; return 2; }
+  local factor transient lua_call
+  zoomctl_split_zoom_arguments factor transient "$@" || return 2
   # The schema supplies the allowed zoom range.
   zoomctl_schema_load || return 1
   # The schema's zoom range (1..10) bounds absolute factors too.
-  factor="$(zoomctl_schema_validate ZOOM_MAX "$1")" || {
-    zoomctl_error "'$1' is not a zoom factor ($(zoomctl_schema_allowed_text ZOOM_MAX))"
+  zoomctl_schema_validate ZOOM_MAX "$factor" > /dev/null || {
+    zoomctl_error "'$factor' is not a zoom factor ($(zoomctl_schema_allowed_text ZOOM_MAX))"
     return 1
   }
-  # Engine and fallback both clamp the factor to the configured bounds.
-  zoomctl_engine_forward "$(zoomctl_lua_call set_zoom "$factor")" \
-    zoomctl_legacy_run set "$factor"
+  factor="$(zoomctl_schema_validate ZOOM_MAX "$factor")"
+  # A transient zoom (a UI test) tells the engine not to remember the level for the toggle.
+  lua_call="$(zoomctl_lua_call set_zoom "$factor")"
+  [ "$transient" -eq 0 ] || lua_call="$(zoomctl_lua_call set_zoom "$factor" false)"
+  # Engine and fallback both clamp the factor; the fallback never touches saved_zoom here.
+  zoomctl_engine_forward "$lua_call" zoomctl_legacy_run set "$factor"
 }
 
 # zoomctl_command_toggle — switch between the reset zoom and the last zoom level.
@@ -94,7 +121,7 @@ zoomctl_command_reset() {
 # Returns: 1 always; stderr: the explanation
 # Globals: none
 zoomctl_legacy_filter_unsupported() {
-  zoomctl_error "colour filters are not supported on the legacy config; they need the Lua engine"
+  zoomctl_error "color filters are not supported on the legacy config; they need the Lua engine"
 }
 
 # zoomctl_parse_filter_name — validate a filter name against the schema enum.
@@ -121,7 +148,7 @@ zoomctl_parse_filter_action() {
   esac
 }
 
-# zoomctl_command_filter — switch the colour filter on, off, or to a named filter.
+# zoomctl_command_filter — switch the color filter on, off, or to a named filter.
 # Args:    $1 optional on|off|toggle|<filter name>
 # Returns: 0 done; 1 failed; 2 usage error
 # Globals: none

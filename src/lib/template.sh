@@ -13,7 +13,7 @@ zoomctl_group_title() {
     zoom) printf 'Zoom\n' ;;
     tracking) printf 'Pointer tracking\n' ;;
     # Group ids come from the schema; the titles are presentation only.
-    filter) printf 'Colour filter\n' ;;
+    filter) printf 'Color filter\n' ;;
     shortcuts) printf 'Shortcuts\n' ;;
     advanced) printf 'Advanced\n' ;;
     # An unknown group is shown by its id.
@@ -165,8 +165,8 @@ EOF
   zoomctl_legacy_bind_line bind "$modifiers" mouse:274 'toggle'
   # The key binds follow the BIND_KEY_* defaults of the schema.
   zoomctl_legacy_key_binds "$modifiers"
-  # Colour filters need the Lua engine, so there is deliberately no filter bind here.
-  printf '\n# Colour filters are not available on the legacy config.\n'
+  # Color filters need the Lua engine, so there is deliberately no filter bind here.
+  printf '\n# Color filters are not available on the legacy config.\n'
 }
 
 # zoomctl_config_render_human — print the effective configuration grouped, with the origin layer.

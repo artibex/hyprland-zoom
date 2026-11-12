@@ -12,10 +12,12 @@ Usage: zoomctl <command> [arguments]
 Zoom:
   in [n]            zoom in by n steps (default 1)
   out [n]           zoom out by n steps
-  zoom <factor>     jump to a zoom factor from 1.00 to 10.00
+  zoom <factor> [--transient]
+                    jump to a zoom factor from 1.00 to 10.00 (--transient: the toggle
+                    keeps its remembered level, for tests)
   toggle            switch between the reset zoom and the last zoom level
   reset             go back to the reset zoom
-  filter [name]     colour filter: on, off, toggle (default) or a filter name
+  filter [name]     color filter: on, off, toggle (default) or a filter name
   tracking <mode>   how the view follows the pointer: centered, edge, margin, follow
 
 Settings:

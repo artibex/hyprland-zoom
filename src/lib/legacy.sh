@@ -3,7 +3,7 @@
 # Used on hyprlang Hyprland and on a Lua config without the engine. Every read-modify-write
 # runs under flock(1) on the state directory, so concurrent `zoomctl in` never lose a step
 # (the 0.1 race: 20 parallel notches lost 17-19 steps).
-# Colour filters are NOT available here: they need the engine's generated shaders.
+# Color filters are NOT available here: they need the engine's generated shaders.
 
 # zoomctl_legacy_tracking_flags — translate a tracking mode to Hyprland's two camera options.
 # Args:    $1 tracking mode (centered|edge|margin|follow)
