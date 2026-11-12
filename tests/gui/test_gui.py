@@ -1343,6 +1343,8 @@ class AppTests(GuiTestCase):
         desktop = (support.REPO_ROOT / "data" / "io.github.artibex.HyprlandZoom.desktop")
         text = desktop.read_text(encoding="utf-8")
         self.assertIn("Exec=hyprland-zoom-settings", text)
+        # The launcher shows the product name, not a name that collides with the video app.
+        self.assertIn("Name=Hyprland Zoom\n", text)
         # The desktop file names the contract application id.
         self.assertIn("Icon=io.github.artibex.HyprlandZoom", text)
         theme = GUI["Gtk"].IconTheme.get_for_display(GUI["Gdk"].Display.get_default())
