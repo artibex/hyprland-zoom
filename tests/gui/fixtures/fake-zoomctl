@@ -9,9 +9,10 @@ State lives in the directory named by FAKE_ZOOMCTL_STATE:
   busy.lock       held shared while a fake runs, so test cleanup can wait for stragglers
 """
 
-# fcntl marks a running fake, json stores state, os reads the environment, sys handles argv.
+# fcntl marks a running fake, json stores state.
 import fcntl
 import json
+# os reads the environment, sys handles argv, time serves the canned delays.
 import os
 import sys
 import time
