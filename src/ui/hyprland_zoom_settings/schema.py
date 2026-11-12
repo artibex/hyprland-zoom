@@ -13,6 +13,7 @@ KIND_FLOAT = "float"
 KIND_INT = "int"
 KIND_BOOL = "bool"
 KIND_ENUM = "enum"
+# Key and mods settings are handled by the shortcut widgets.
 KIND_KEY = "key"
 KIND_MODS = "mods"
 KNOWN_KINDS = (KIND_FLOAT, KIND_INT, KIND_BOOL, KIND_ENUM, KIND_KEY, KIND_MODS)
@@ -43,9 +44,11 @@ class SettingSpec:
     key: str
     kind: str
     default: str
+    # The group id selects the page the setting appears on.
     group: str
     label: str
     help: str
+    # Bounds exist for float and int settings only.
     minimum: Optional[float] = None
     maximum: Optional[float] = None
     choices: Tuple[str, ...] = ()
@@ -137,6 +140,7 @@ def _parse_line(line: str) -> SettingSpec:
         raise SchemaError(f"unknown type '{kind}' for {key}")
     minimum, maximum = _parse_range(kind, constraint)
     choices = tuple(constraint.split(",")) if kind == KIND_ENUM else ()
+    # Everything the widgets need travels in one immutable object.
     return SettingSpec(key, kind, default, group, label, help_text, minimum, maximum, choices)
 
 

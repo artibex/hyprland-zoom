@@ -53,6 +53,7 @@ class SchemaTests(unittest.TestCase):
         for bad in ("A|bool|on", "A|blob|x||g|l|h", "A|float|1||g|l|h"):
             with self.assertRaises(SchemaError, msg=bad):
                 parse_schema(bad)
+        # A repeated key is the one error that needs two lines to provoke.
         with self.assertRaises(SchemaError):
             parse_schema("A|bool|on||g|l|h\nA|bool|on||g|l|h")
 
@@ -99,6 +100,7 @@ class ValueTests(unittest.TestCase):
         verdict = self.check("ZOOM_STEP", "2.5")
         self.assertFalse(verdict.ok)
         self.assertIn("between 0.01 and 2.00", verdict.error)
+        # 0.001 rounds to 0.00, which is below the minimum.
         self.assertFalse(self.check("ZOOM_STEP", "0.001").ok)
 
     def test_not_a_number_and_non_finite_are_refused(self):
@@ -127,6 +129,7 @@ class ValueTests(unittest.TestCase):
         self.assertEqual(self.check("ZOOM_TRACKING", "Margin").canonical, "margin")
         verdict = self.check("ZOOM_TRACKING", "diagonal")
         self.assertFalse(verdict.ok)
+        # The message must list the valid choices so the user can fix it.
         self.assertIn("centered, edge, margin, follow", verdict.error)
 
     def test_key_names_are_uppercased_and_may_be_empty(self):
@@ -134,6 +137,7 @@ class ValueTests(unittest.TestCase):
         self.assertEqual(self.check("BIND_KEY_IN", "i").canonical, "I")
         self.assertEqual(self.check("BIND_KEY_IN", "").canonical, "")
         for text in ("a b", "x;y", "$(id)", "a" * 40):
+            # Spaces, separators, shell syntax and over-long names are all refused.
             self.assertFalse(self.check("BIND_KEY_IN", text).ok, text)
 
     def test_modifiers_are_canonical_ordered_and_deduplicated(self):
@@ -141,6 +145,7 @@ class ValueTests(unittest.TestCase):
         verdict = self.check("BIND_MODIFIERS", "alt+super + ALT")
         self.assertEqual(verdict.canonical, "SUPER + ALT")
         self.assertEqual(self.check("BIND_MODIFIERS", "Control+Shift").canonical, "CTRL + SHIFT")
+        # No modifier at all and an unknown modifier are both invalid.
         self.assertFalse(self.check("BIND_MODIFIERS", "").ok)
         self.assertFalse(self.check("BIND_MODIFIERS", "SUPER + HYPER").ok)
 
@@ -149,6 +154,7 @@ class ValueTests(unittest.TestCase):
         self.assertEqual(values.format_float(1.5), "1.50")
         self.assertIsNone(values.parse_bool("x"))
         self.assertEqual(values.float_digits(self.schema.by_key["ZOOM_STEP"]), 2)
+        # Whole-number settings show no decimals.
         self.assertEqual(values.float_digits(self.schema.by_key["SCROLL_EVENT_DELAY_MS"]), 0)
 
 
@@ -172,6 +178,7 @@ class KeyTests(unittest.TestCase):
         self.assertEqual(keys.chord_parts("SUPER + ALT", "I"), ["Super", "Alt", "I"])
         self.assertEqual(keys.chord_parts("CTRL + SHIFT", "RETURN"), ["Ctrl", "Shift", "Return"])
         self.assertEqual(keys.chord_parts("SUPER", ""), [])
+        # Unknown modifier text degrades to the key alone.
         self.assertEqual(keys.chord_parts("bogus", "F5"), ["F5"])
 
     def test_conflict_detection_ignores_self_and_empty(self):
@@ -179,9 +186,11 @@ class KeyTests(unittest.TestCase):
         schema = real_schema()
         config = schema.defaults()
         conflict = keys.find_key_conflict(schema, config, "BIND_KEY_OUT", "I")
+        # The conflict names the other setting, so the toast can say which.
         self.assertEqual(conflict.key, "BIND_KEY_IN")
         self.assertIsNone(keys.find_key_conflict(schema, config, "BIND_KEY_IN", "I"))
         self.assertIsNone(keys.find_key_conflict(schema, config, "BIND_KEY_OUT", ""))
+        # A key nobody uses is free.
         self.assertIsNone(keys.find_key_conflict(schema, config, "BIND_KEY_OUT", "P"))
 
 
@@ -201,6 +210,7 @@ class PorcelainTests(unittest.TestCase):
         )
         self.assertEqual((status.engine, status.zoom), ("lua", 1.5))
         self.assertTrue(status.filter_active)
+        # plugin=missing means margin mode is unavailable.
         self.assertFalse(status.plugin_loaded)
         self.assertFalse(status.engine_missing)
 
@@ -209,6 +219,7 @@ class PorcelainTests(unittest.TestCase):
         self.assertIsNone(porcelain.parse_status("zoom=abc\nengine=lua").zoom)
         empty = porcelain.parse_status("")
         self.assertEqual(empty.engine, porcelain.ENGINE_UNREACHABLE)
+        # The unreachable state has its own sentence.
         self.assertEqual(porcelain.describe_status(empty), "zoomctl is not answering")
 
     def test_missing_engine_is_detected(self):
@@ -222,6 +233,7 @@ class PorcelainTests(unittest.TestCase):
         )
         line = porcelain.describe_status(status)
         self.assertIn("Zoom 2.00×", line)
+        # The line must reveal that the plugin is missing.
         self.assertIn("edge (configured: margin)", line)
         self.assertIn("Engine: lua", line)
 
@@ -257,5 +269,6 @@ class PresentationTests(unittest.TestCase):
                 )
 
 
+# Allows running this file directly.
 if __name__ == "__main__":
     unittest.main()

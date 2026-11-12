@@ -28,15 +28,19 @@ class TryItBar(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.settings = settings
         self.session = session
+        # One literal for all four margins keeps the bar from touching the edges.
         for side in ("top", "bottom", "start", "end"):
             getattr(self, f"set_margin_{side}")(12)
         heading = Gtk.Label(label="Try it", xalign=0.0)
+        # The heading style follows the theme's own title weight.
         heading.add_css_class("heading")
         self.append(heading)
         self._build_buttons()
+        # Selectable so the status line can be copied into a bug report.
         self.status_label = Gtk.Label(xalign=0.0, wrap=True, selectable=True)
         self.status_label.add_css_class("dim-label")
         self.status_label.add_css_class("caption")
+        # The status line sits below the buttons.
         self.append(self.status_label)
         # The bar redraws whenever the session or the status changes.
         session.connect("changed", lambda _session: self.refresh())
@@ -52,15 +56,18 @@ class TryItBar(Gtk.Box):
         self.button_box = Adw.WrapBox(child_spacing=8, line_spacing=8)
         self.zoom_button = self._make_button("", self.session.start_zoom_test, "suggested-action")
         self.filter_button = self._make_button("", self.session.start_filter_preview)
+        # Zoom test ends early with this button.
         self.stop_button = self._make_button("Stop now", self.session.stop)
         self.keep_button = self._make_button("Keep", self.session.keep, "suggested-action")
         self.revert_button = self._make_button("Revert", self.session.stop)
+        # Wraps at large text sizes instead of widening the window.
         self.countdown_label = Gtk.Label(xalign=0.0, wrap=True)
         self.countdown_label.update_property(
             [Gtk.AccessibleProperty.LABEL], ["Try it countdown"]
         )
         for widget in (self.zoom_button, self.filter_button, self.stop_button, self.keep_button,
                        self.revert_button, self.countdown_label):
+            # The WrapBox lets buttons flow onto a second line when the window is narrow.
             self.button_box.append(widget)
         self.append(self.button_box)
 
@@ -93,15 +100,18 @@ class TryItBar(Gtk.Box):
         self.zoom_button.set_label(
             f"Zoom to {ZOOM_TEST_FACTOR:g}× for {self.session.zoom_seconds} s"
         )
+        # Durations come from the session, so tests can shorten them.
         self.filter_button.set_label(f"Preview filter for {self.session.filter_seconds} s")
         # Start buttons only when nothing runs; the matching end buttons only during a test.
         self.zoom_button.set_visible(idle)
         self.filter_button.set_visible(idle)
         self.stop_button.set_visible(mode == MODE_ZOOM)
         self.keep_button.set_visible(mode == MODE_FILTER)
+        # Keep and Revert exist only while a filter preview runs.
         self.revert_button.set_visible(mode == MODE_FILTER)
         self.countdown_label.set_visible(not idle)
         self.countdown_label.set_label(self._countdown_text(mode))
+        # The status line is rebuilt on every refresh.
         self.status_label.set_label(describe_status(self.settings.status))
 
     def _countdown_text(self, mode: str) -> str:
@@ -116,6 +126,7 @@ class TryItBar(Gtk.Box):
         seconds = self.session.seconds_left
         if mode == MODE_ZOOM:
             return f"Zoomed in – back to normal in {seconds} s"
+        # The preview reverts on its own unless the user keeps it.
         if mode == MODE_FILTER:
             return f"Previewing the filter – reverts in {seconds} s unless you keep it"
         return ""

@@ -26,6 +26,7 @@ def parse_key_values(text: str) -> Dict[str, str]:
         key = key.strip()
         if separator and key and not key.startswith("#"):
             pairs[key] = value.strip()
+    # Callers get a plain dict they can look keys up in.
     return pairs
 
 
@@ -52,12 +53,15 @@ class EngineStatus:
     engine: str = ENGINE_UNREACHABLE
     version: str = ""
     hyprland: str = ""
+    # Zoom levels are None while unknown (status unreachable).
     zoom: Optional[float] = None
     saved_zoom: Optional[float] = None
     tracking: str = ""
+    # Effective mode differs from the configured one without the plugin.
     tracking_effective: str = ""
     plugin: str = "missing"
     filter: str = ""
+    # Filter on/off as a real boolean for the status line.
     filter_active: bool = False
 
     @property

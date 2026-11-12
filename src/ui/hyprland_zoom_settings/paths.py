@@ -52,6 +52,7 @@ def resolve_schema_path(environment: Mapping[str, str]) -> Optional[str]:
     for candidate in candidates:
         if os.path.isfile(candidate):
             return candidate
+    # None tells the app to show its explanation window.
     return None
 
 

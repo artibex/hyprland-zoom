@@ -161,6 +161,7 @@ def command_set(arguments):
         emit(stderr=f"zoomctl: unknown key '{key}'\n", code=1)
     overrides = read_json("config.json", {})
     overrides[key] = arguments[1]
+    # Persisting the override lets the next config call report it.
     write_json("config.json", overrides)
     emit()
 
@@ -177,6 +178,7 @@ def command_zoom(arguments):
     status = read_json("status.json", {})
     status["zoom"] = arguments[0]
     write_json("status.json", status)
+    # Success prints nothing, like the real set.
     emit()
 
 
@@ -196,6 +198,7 @@ def command_preview(arguments):
     else:
         status["preview"] = " ".join(arguments)
     write_json("status.json", status)
+    # The preview state is only for assertions; the command itself prints nothing.
     emit()
 
 
@@ -211,12 +214,15 @@ def dispatch(argv):
     command, rest = (argv[0] if argv else ""), argv[1:]
     if command == "config":
         command_config()
+    # Each built-in command exits through emit, so the ifs never fall through.
     if command == "status":
         command_status()
     if command == "set":
+        # set validates the key and stores the value.
         command_set(rest)
     if command == "zoom":
         command_zoom(rest)
+    # preview records or clears the override text.
     if command == "preview":
         command_preview(rest)
     if command == "reset-config":
@@ -242,9 +248,11 @@ def main():
         log.write(json.dumps(argv) + "\n")
     override = find_override(argv)
     if override is not None:
+        # A canned sleep lets tests provoke the client timeout.
         time.sleep(override.get("sleep", 0))
         emit(override.get("stdout", ""), override.get("stderr", ""), override.get("rc", 0))
     dispatch(argv)
 
 
+# The script is a pure command, so it runs on import.
 main()

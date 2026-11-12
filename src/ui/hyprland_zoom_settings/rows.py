@@ -14,6 +14,7 @@ from typing import Callable, Dict, List, Optional
 import gi
 
 gi.require_version("Gtk", "4.0")
+# Both toolkits are pinned before any import from gi.repository.
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402 - gi.require_version must run first
 
@@ -47,6 +48,7 @@ class RowContext:
     schema: SettingsSchema
     get_values: Callable[[], Dict[str, str]]
     on_change: Callable[[str, str], object]
+    # Rows report refusals here instead of showing toasts themselves.
     report_error: Callable[[str], None]
 
 
@@ -174,6 +176,7 @@ class SettingRow:
         self.context = context
         self.widget = widget
         self._updating = False
+        # Pointer users and assistive tools get the same help text.
         widget.set_tooltip_text(spec.help)
 
     def apply_values(self, values: Dict[str, str]) -> None:
@@ -190,6 +193,7 @@ class SettingRow:
             return
         self._updating = True
         try:
+            # The subclass paints the value; the guard flag silences its signals.
             self.show_value(values.get(self.spec.key, self.spec.default), values)
         finally:
             self._updating = False
@@ -360,6 +364,7 @@ class ScaleSettingRow(DebouncedRow):
         row = Adw.ActionRow(title=spec.label, subtitle=spec.help)
         super().__init__(spec, context, row)
         low, high = spec.minimum or 0.0, spec.maximum or 0.0
+        # Range and step come from the schema, never from literals here.
         adjustment = Gtk.Adjustment(
             lower=low, upper=high, step_increment=0.01, page_increment=round((high - low) / 10, 2)
         )
@@ -418,6 +423,7 @@ class SpinSettingRow(DebouncedRow):
             lower=spec.minimum or 0.0, upper=spec.maximum or 0.0,
             step_increment=step, page_increment=step * 10,
         )
+        # The digits value gives whole numbers for ints and two decimals otherwise.
         row = Adw.SpinRow(title=spec.label, subtitle=spec.help, adjustment=adjustment,
                           digits=digits)
         super().__init__(spec, context, row)
@@ -465,6 +471,7 @@ class ComboSettingRow(SettingRow):
         labels = [option_label(spec.key, option) for option in spec.choices]
         row = Adw.ComboRow(title=spec.label, subtitle=spec.help, model=Gtk.StringList.new(labels))
         super().__init__(spec, context, row)
+        # Selection changes are user edits unless the guard flag is set.
         row.connect("notify::selected", self._on_selected)
 
     def show_value(self, text: str, values: Dict[str, str]) -> None:
@@ -510,6 +517,7 @@ class ChoiceListRow(SettingRow):
         group = Adw.PreferencesGroup(title=spec.label, description=spec.help)
         super().__init__(spec, context, group)
         self.option_rows: Dict[str, Adw.ActionRow] = {}
+        # Public so tests and the page can reach the radio buttons by option.
         self.buttons: Dict[str, Gtk.CheckButton] = {}
         first_button: Optional[Gtk.CheckButton] = None
         for option in spec.choices:
@@ -520,6 +528,7 @@ class ChoiceListRow(SettingRow):
             else:
                 button.set_group(first_button)
             row = self._build_option_row(option, button)
+            # Rows are kept by option so subtitles can be replaced later.
             self.option_rows[option] = row
             self.buttons[option] = button
             group.add(row)
@@ -537,9 +546,11 @@ class ChoiceListRow(SettingRow):
         title = option_label(self.spec.key, option)
         description = option_description(self.spec.key, option) or ""
         row = Adw.ActionRow(title=title, subtitle=description)
+        # The radio button leads the row; clicking the row selects it.
         row.add_prefix(button)
         row.set_activatable_widget(button)
         label_accessibly(button, title, description)
+        # The option travels as an extra argument to the handler.
         button.connect("toggled", self._on_toggled, option)
         return row
 
@@ -599,12 +610,15 @@ class ModifiersSettingRow(SettingRow):
         row = Adw.ActionRow(title=spec.label, subtitle=spec.help)
         super().__init__(spec, context, row)
         box = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER)
+        # Linked styling draws the four toggles as one segmented control.
         box.add_css_class("linked")
         self.toggles: Dict[str, Gtk.ToggleButton] = {}
         for name in MODIFIER_ORDER:
+            # One toggle per modifier, labelled with its keyboard name.
             toggle = Gtk.ToggleButton(label=MODIFIER_CAP_NAMES[name])
             label_accessibly(toggle, f"{MODIFIER_CAP_NAMES[name]} key", spec.help)
             toggle.connect("toggled", self._on_toggled)
+            # Toggles are kept by modifier name for show_value and tests.
             self.toggles[name] = toggle
             box.append(toggle)
         row.add_suffix(box)
@@ -667,18 +681,22 @@ class KeySettingRow(SettingRow):
         row = Adw.ActionRow(title=spec.label, subtitle=spec.help)
         super().__init__(spec, context, row)
         self.keycaps = Gtk.Box(spacing=4, valign=Gtk.Align.CENTER)
+        # Shown instead of the keycaps while the shortcut is disabled.
         self.disabled_label = Gtk.Label(label="Disabled", valign=Gtk.Align.CENTER)
         self.disabled_label.add_css_class("dim-label")
         self.change_button = Gtk.Button(label="Change…", valign=Gtk.Align.CENTER)
+        # The button name says which shortcut it changes.
         label_accessibly(self.change_button, f"Change {spec.label}", spec.help)
         self.change_button.connect("clicked", self._on_change_clicked)
         self.disable_button = Gtk.Button(
             icon_name="edit-clear-symbolic", tooltip_text="Disable this shortcut",
             valign=Gtk.Align.CENTER,
         )
+        # An icon-only button needs an explicit accessible name.
         label_accessibly(self.disable_button, f"Disable {spec.label}", "Removes the shortcut")
         self.disable_button.add_css_class("flat")
         self.disable_button.connect("clicked", lambda _button: self.emit_change(""))
+        # The suffix order is the visual order from left to right.
         for part in (self.keycaps, self.disabled_label, self.change_button,
                      self.disable_button):
             row.add_suffix(part)
@@ -714,6 +732,7 @@ class KeySettingRow(SettingRow):
             self.keycaps.remove(old_cap)
         for part in parts:
             cap = Gtk.Label(label=part)
+            # The style class draws the label like a keyboard key.
             cap.add_css_class(KEYCAP_CSS_CLASS)
             self.keycaps.append(cap)
         label_accessibly(self.keycaps, " + ".join(parts) or "Disabled", self.spec.help)
@@ -751,6 +770,7 @@ class KeySettingRow(SettingRow):
         )
         if conflict is not None:
             self.context.report_error(f"{key_name} is already used by “{conflict.label}”")
+            # False keeps the dialog open so the user can try another key.
             return False
         self.emit_change(key_name)
         return True
@@ -769,9 +789,11 @@ def build_setting_row(spec: SettingSpec, context: RowContext) -> SettingRow:
     if spec.kind == KIND_BOOL:
         return SwitchSettingRow(spec, context)
     if spec.kind == KIND_ENUM:
+        # Only enums with explanations and a manageable size become radio lists.
         use_list = spec.key in CHOICE_LIST_KEYS and len(spec.choices) <= CHOICE_LIST_MAX_OPTIONS
         return ChoiceListRow(spec, context) if use_list else ComboSettingRow(spec, context)
     if spec.kind == KIND_MODS:
+        # Modifiers and keys have their own rows because they need capture.
         return ModifiersSettingRow(spec, context)
     if spec.kind == KIND_KEY:
         return KeySettingRow(spec, context)

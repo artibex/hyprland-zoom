@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
+# Kind constants decide which check a setting gets.
 from .schema import (
     KIND_BOOL,
     KIND_ENUM,
@@ -112,6 +113,7 @@ def parse_modifiers(text: str) -> Optional[List[str]]:
         if not word:
             continue
         if word not in _MODIFIER_ALIASES:
+            # A name outside the four known modifiers makes the whole list invalid.
             return None
         names.add(_MODIFIER_ALIASES[word])
     return [name for name in MODIFIER_ORDER if name in names]
@@ -150,6 +152,7 @@ def _check_number(spec: SettingSpec, text: str) -> ValueCheck:
         return ValueCheck(False, error=f"'{text}' is not a finite number")
     is_int = spec.kind == KIND_INT
     if is_int and number != int(number):
+        # Ints must not be silently truncated.
         return ValueCheck(False, error=f"{spec.label} must be a whole number")
     # Floats are stored with two decimals, so the range applies to the rounded value.
     number = float(int(number)) if is_int else round(number, 2)
@@ -158,6 +161,7 @@ def _check_number(spec: SettingSpec, text: str) -> ValueCheck:
     high = spec.maximum if spec.maximum is not None else math.inf
     if not low <= number <= high:
         low_text, high_text = format_float(low), format_float(high)
+        # The message names the schema range.
         return ValueCheck(False, error=f"{spec.label} must be between {low_text} and {high_text}")
     return ValueCheck(True, str(int(number)) if is_int else format_float(number))
 
@@ -241,6 +245,7 @@ def check_value(spec: SettingSpec, text: str) -> ValueCheck:
     if spec.kind in (KIND_FLOAT, KIND_INT):
         return _check_number(spec, word)
     if spec.kind == KIND_BOOL:
+        # Each kind has its own small checker.
         return _check_bool(word)
     if spec.kind == KIND_ENUM:
         return _check_enum(spec, word)

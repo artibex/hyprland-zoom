@@ -68,9 +68,11 @@ class SettingsPage(Adw.PreferencesPage):
                 self.group_of[spec.key] = row.widget
                 current_group = None
                 continue
+            # The first plain row after a choice list opens a fresh group.
             if current_group is None:
                 current_group = Adw.PreferencesGroup()
                 self.add(current_group)
+            # Plain rows of one run share a group, so the page keeps its rhythm.
             current_group.add(row.widget)
             self.group_of[spec.key] = current_group
 
@@ -128,12 +130,15 @@ class TrackingPage(SettingsPage):
         super().__init__(info, specs, context)
         self.plugin_row = Adw.ActionRow()
         self.plugin_row.add_prefix(Gtk.Image(icon_name="dialog-information-symbolic"))
+        # The link opens the installation notes in the browser.
         docs_link = Gtk.LinkButton(uri=PLUGIN_DOCS_URL, label="docs/plugin.md")
         docs_link.set_valign(Gtk.Align.CENTER)
         self.plugin_row.add_suffix(docs_link)
+        # Shows what Hyprland really does, which may differ from the setting.
         self.effective_row = Adw.ActionRow(title="Active tracking mode")
         group = Adw.PreferencesGroup(title="Margin mode")
         group.add(self.plugin_row)
+        # Both rows share one titled group below the choices.
         group.add(self.effective_row)
         self.add(group)
 
@@ -152,6 +157,7 @@ class TrackingPage(SettingsPage):
         if EDGE_MARGIN_KEY in self.rows:
             self.rows[EDGE_MARGIN_KEY].set_visible(margin_selected)
             self.group_of[EDGE_MARGIN_KEY].set_visible(margin_selected)
+        # The plugin text and the margin option follow the live status.
         self._describe_plugin(status)
         self.effective_row.set_subtitle(status.tracking_effective or "unknown")
 
@@ -167,16 +173,19 @@ class TrackingPage(SettingsPage):
         margin_text = option_description(TRACKING_KEY, MARGIN_MODE) or ""
         if status.plugin_loaded:
             self.plugin_row.set_title("hyprzoom plugin detected")
+            # A loaded plugin needs no warning, only a confirmation.
             self.plugin_row.set_subtitle("Margin mode is available.")
             note = margin_text
         else:
             self.plugin_row.set_title("hyprzoom plugin not detected")
+            # Explains the fallback so the missing option is not a mystery.
             self.plugin_row.set_subtitle(
                 "Margin mode needs the optional hyprzoom plugin. Without it Hyprland keeps its "
                 "fixed 5 % edge margin. Installation is described in:"
             )
             note = f"{margin_text} Needs the hyprzoom plugin (not detected)."
         choice = self.rows.get(TRACKING_KEY)
+        # The option subtitle carries the warning next to the choice itself.
         if isinstance(choice, ChoiceListRow):
             choice.set_option_subtitle(MARGIN_MODE, note)
 
@@ -200,12 +209,14 @@ class AdvancedPage(SettingsPage):
             label="Restore defaults…", valign=Gtk.Align.CENTER, action_name="win.restore-defaults"
         )
         restore_button.add_css_class("destructive-action")
+        # One row with an explanation and the destructive button.
         row = Adw.ActionRow(
             title="Restore defaults",
             subtitle="Removes all your changes and returns every setting to its default.",
         )
         row.add_suffix(restore_button)
         group = Adw.PreferencesGroup(title="Reset")
+        # The reset sits in its own group, apart from the ordinary settings.
         group.add(row)
         self.add(group)
 
@@ -227,5 +238,6 @@ def build_pages(schema, context: RowContext) -> List[SettingsPage]:
     pages: List[SettingsPage] = []
     for info in ordered_groups(schema.group_ids()):
         page_class = PAGE_CLASSES.get(info.group, SettingsPage)
+        # Each page gets exactly the settings of its group.
         pages.append(page_class(info, schema.specs_in_group(info.group), context))
     return pages

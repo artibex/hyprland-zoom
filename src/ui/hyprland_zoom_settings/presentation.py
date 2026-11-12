@@ -24,6 +24,7 @@ class GroupInfo:
     group: str
     title: str
     icon: str
+    # Shown under the page title; may be empty for unknown groups.
     description: str
 
 

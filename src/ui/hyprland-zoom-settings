@@ -25,6 +25,7 @@ def find_package_parent():
     share_dir = os.environ.get("ZOOMCTL_SHARE_DIR") or DEFAULT_SHARE_DIR
     for candidate in (script_dir, os.path.join(share_dir, "ui")):
         if os.path.isdir(os.path.join(candidate, PACKAGE_NAME)):
+            # The first directory that holds the package wins.
             return candidate
     return None
 
@@ -38,6 +39,7 @@ def run():
     package_parent = find_package_parent()
     if package_parent is None:
         print(f"hyprland-zoom-settings: package '{PACKAGE_NAME}' not found", file=sys.stderr)
+        # A non-zero exit tells the launcher that nothing started.
         return 1
     # Importing after the path edit keeps the script usable from any working directory.
     sys.path.insert(0, package_parent)
@@ -47,4 +49,5 @@ def run():
 
 
 if __name__ == "__main__":
+    # Propagates the application's exit code to the shell.
     sys.exit(run())

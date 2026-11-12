@@ -7,6 +7,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
+# Adw is pinned last; the imports follow once all versions are set.
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gtk  # noqa: E402 - gi.require_version must run first
 
@@ -58,6 +59,7 @@ class KeyCaptureDialog(Adw.Dialog):
             title="Press the new key",
             description="Press just the key: the modifier keys are set separately. Esc cancels.",
         )
+        # The status page is the whole dialog content.
         self.set_child(page)
         # Capture phase: the dialog sees every key before a focused button could use it.
         controller = Gtk.EventControllerKey()

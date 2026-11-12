@@ -51,9 +51,11 @@ class SettingsWindow(Adw.ApplicationWindow):
                          default_height=780)
         self.controller = controller
         self.session = session
+        # Configurable so tests need not wait a full second.
         self.status_refresh_seconds = status_refresh_seconds
         self._status_timer_id = 0
         self.pages: List[SettingsPage] = []
+        # The layout needs the schema, the rest only needs the controllers.
         self._build_layout(schema)
         self._add_actions()
         self._connect_signals()
@@ -80,20 +82,25 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.pages = build_pages(schema, context)
         self.stack = Adw.ViewStack(vexpand=True)
         for page in self.pages:
+            # Page title and icon come from the presentation table.
             self.stack.add_titled_with_icon(
                 page, page.group_id, page.get_title(), page.get_icon_name()
             )
         self.banner = Adw.Banner(revealed=False)
         self.banner.connect("button-clicked", self._on_banner_clicked)
+        # The header owns the switcher and the main menu.
         self.header = self._build_header()
         self.switcher_bar = Adw.ViewSwitcherBar(stack=self.stack)
         view = Adw.ToolbarView()
+        # Header first, then the banner, so the banner sits below it.
         view.add_top_bar(self.header)
         view.add_top_bar(self.banner)
         view.set_content(self.stack)
+        # Kept as an attribute so tests and the window can reach the bar.
         self.tryit_bar = TryItBar(self.controller, self.session)
         view.add_bottom_bar(self.tryit_bar)
         view.add_bottom_bar(self.switcher_bar)
+        # Toasts appear over the whole window, above the Try-it bar.
         self.toast_overlay = Adw.ToastOverlay(child=view)
         self.set_content(self.toast_overlay)
         self._add_narrow_breakpoint()
@@ -107,9 +114,11 @@ class SettingsWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         self.wide_switcher = Adw.ViewSwitcher(stack=self.stack, policy=Adw.ViewSwitcherPolicy.WIDE)
         header.set_title_widget(self.wide_switcher)
+        # A plain menu model keeps the menu declarative.
         menu = Gio.Menu()
         menu.append("Restore defaults…", "win.restore-defaults")
         menu.append(f"About {APP_NAME}", "win.about")
+        # primary=True makes F10 open the menu.
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu,
                                        primary=True, tooltip_text="Main menu"))
         return header
@@ -123,6 +132,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         condition = Adw.BreakpointCondition.parse(NARROW_WIDTH_CONDITION)
         breakpoint_ = Adw.Breakpoint.new(condition)
         breakpoint_.add_setter(self.switcher_bar, "reveal", True)
+        # Narrow windows show the plain title; the switcher moves down.
         breakpoint_.add_setter(self.header, "title-widget", Adw.WindowTitle(title=APP_NAME))
         self.add_breakpoint(breakpoint_)
 
@@ -136,6 +146,7 @@ class SettingsWindow(Adw.ApplicationWindow):
                               ("about", lambda *_args: dialogs.show_about(self))):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
+            # Actions are addressed as win.<name> by the menu and the Advanced page.
             self.add_action(action)
 
     def _connect_signals(self) -> None:
@@ -201,7 +212,8 @@ class SettingsWindow(Adw.ApplicationWindow):
             self.banner.set_button_label("Set up")
         elif status.engine == ENGINE_UNREACHABLE:
             reason = self.controller.status_problem or "no answer"
-            self.banner.set_title(f"zoomctl is not available ({reason}). Changes cannot be applied.")
+            message = f"zoomctl is not available ({reason}). Changes cannot be applied."
+            self.banner.set_title(message)
             # Nothing the app could run would fix this, so no action button.
             self.banner.set_button_label(None)
         self.banner.set_revealed(status.engine_missing or status.engine == ENGINE_UNREACHABLE)
@@ -304,4 +316,5 @@ class SettingsWindow(Adw.ApplicationWindow):
             page.flush()
         self.session.shutdown()
         self._stop_status_timer()
+        # Returning False lets the window close.
         return False

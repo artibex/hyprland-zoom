@@ -57,6 +57,7 @@ class SettingsController(GObject.Object):
         self._queue: Dict[str, _QueuedChange] = {}
         self._set_in_flight = False
         self._config_in_flight = False
+        # In-flight flags make overlapping refreshes collapse into one.
         self._config_refresh_again = False
         self._status_in_flight = False
         # False until the first status answer arrived, so the banner does not flash at startup.
@@ -75,6 +76,7 @@ class SettingsController(GObject.Object):
             self._config_refresh_again = True
             return
         self._config_in_flight = True
+        # The result arrives later on the main loop.
         self.client.run(["config", "--porcelain"], self._on_config_result)
 
     def _on_config_result(self, result: CommandResult) -> None:
@@ -94,6 +96,7 @@ class SettingsController(GObject.Object):
             self.values = {**self.values, **known}
             self.emit("config-changed")
         else:
+            # A failed read keeps the old values and tells the user.
             self.emit("error", f"Could not read the configuration: {result.message}")
         # Run the deferred refresh, if one was requested in the meantime.
         if self._config_refresh_again:
@@ -127,9 +130,11 @@ class SettingsController(GObject.Object):
         problem = "" if result.ok else result.message
         first_answer = not self.status_received
         self.status_received = True
+        # Only real changes (or the first answer) redraw the widgets.
         if first_answer or status != self.status or problem != self.status_problem:
             self.status = status
             self.status_problem = problem
+            # Widgets and the banner react to this signal.
             self.emit("status-changed")
 
     # ----- writing ------------------------------------------------------------------------
@@ -153,6 +158,7 @@ class SettingsController(GObject.Object):
             self.emit("config-changed")
             if on_done:
                 self._call_later(on_done, False)
+            # Callers use the verdict for immediate feedback.
             return verdict
         # A newer value for the same key replaces an older queued one but keeps its waiters.
         waiting = self._queue[key][1] if key in self._queue else []
@@ -195,6 +201,7 @@ class SettingsController(GObject.Object):
             return
         key = next(iter(self._queue))
         value, waiting = self._queue.pop(key)
+        # No second set starts until this one has finished.
         self._set_in_flight = True
         self.client.run(
             ["set", key, value], lambda result: self._on_set_result(key, value, waiting, result)
@@ -218,6 +225,7 @@ class SettingsController(GObject.Object):
         if result.ok:
             self.values[key] = value
         else:
+            # The first stderr line of zoomctl becomes the toast.
             self.emit("error", result.message)
         # Success updates dependent widgets; failure makes them revert to the old value.
         self.emit("config-changed")
@@ -258,6 +266,7 @@ class SettingsController(GObject.Object):
             if on_done:
                 on_done(result)
 
+        # The wrapper reports errors once and then calls the caller back.
         self.client.run(arguments, finished)
 
     def reset_config(self, on_done: Optional[DoneCallback] = None) -> None:
@@ -309,4 +318,5 @@ class SettingsController(GObject.Object):
             if on_done:
                 on_done(result.ok)
 
+        # Setup reuses the shared error reporting of run_action.
         self.run_action(["setup"], finished)

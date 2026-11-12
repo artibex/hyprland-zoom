@@ -42,6 +42,7 @@ def confirm(
     dialog.set_default_response(RESPONSE_CANCEL)
     dialog.set_close_response(RESPONSE_CANCEL)
     dialog.connect("response", lambda _dialog, response: _on_response(response, on_confirm))
+    # Presenting over the parent makes the dialog modal for that window.
     dialog.present(parent)
 
 

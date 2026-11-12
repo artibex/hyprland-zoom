@@ -34,6 +34,7 @@ class CommandResult:
     arguments: List[str]
     exit_status: int = 0
     stdout: str = ""
+    # stderr and failure complete the record of one call.
     stderr: str = ""
     failure: str = ""
 
@@ -61,6 +62,7 @@ class CommandResult:
         return self.failure or f"zoomctl {' '.join(self.arguments)} failed"
 
 
+# Every asynchronous call reports through a callback of this shape.
 ResultCallback = Callable[[CommandResult], None]
 
 
@@ -87,6 +89,7 @@ class _PendingCall:
         self.arguments = arguments
         self.callback = callback
         self.timeout_seconds = timeout_seconds
+        # The flag tells finish() whether the kill timer fired first.
         self.timed_out = False
         self.timer_id = GLib.timeout_add_seconds(timeout_seconds, self._on_timeout)
 
@@ -117,6 +120,7 @@ class _PendingCall:
         try:
             _, stdout, stderr = self.process.communicate_utf8_finish(task)
         except GLib.Error as error:
+            # A broken pipe is reported like any other failure, never raised.
             self.callback(CommandResult(self.arguments, NO_EXIT_STATUS, failure=error.message))
             return
         # A killed or signalled process has no meaningful exit status.
@@ -163,6 +167,7 @@ class ZoomctlClient:
             GLib.idle_add(self._deliver_failure, callback, arguments, failure)
             return
         pending = _PendingCall(process, arguments, callback, self.timeout_seconds)
+        # The lambda ignores the source object and finishes the call.
         process.communicate_utf8_async(None, None, lambda _process, task: pending.finish(task))
 
     @staticmethod

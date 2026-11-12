@@ -96,4 +96,5 @@ def find_key_conflict(
             continue
         if config.get(spec.key, spec.default).upper() == key_name.upper():
             return spec
+    # No other key-typed setting uses this key.
     return None

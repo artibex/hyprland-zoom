@@ -57,6 +57,7 @@ class TryItController(GObject.Object):
         super().__init__()
         self.settings = settings
         self.zoom_seconds = zoom_seconds
+        # Both durations are read by the bar to label its buttons.
         self.filter_seconds = filter_seconds
         self.tick_milliseconds = tick_milliseconds
         # Public state read by the widgets.
@@ -103,6 +104,7 @@ class TryItController(GObject.Object):
         if self.busy:
             return
         self._begin(MODE_FILTER, self.filter_seconds)
+        # The preview forces the configured filter on without saving anything.
         overrides = [
             f"{FILTER_KEY}={self.settings.values[FILTER_KEY]}",
             f"{FILTER_ACTIVE_KEY}=on",
@@ -149,6 +151,7 @@ class TryItController(GObject.Object):
         self.seconds_left -= 1
         if self.seconds_left > 0:
             self.emit("changed")
+            # Keeping the source alive makes the next tick arrive.
             return GLib.SOURCE_CONTINUE
         # The timer source ends itself by returning False, so it is forgotten first.
         self._timer_id = 0
@@ -183,6 +186,7 @@ class TryItController(GObject.Object):
         if self.mode != MODE_FILTER:
             return
         self._cancel_timer()
+        # The mode flips first so a re-entrant call sees an idle controller.
         self.mode = MODE_IDLE
         self.emit("changed")
         # The preview ends only after the setting was saved; a refused save simply reverts it.
@@ -202,9 +206,11 @@ class TryItController(GObject.Object):
         mode = self.mode
         self._cancel_timer()
         self.mode = MODE_IDLE
+        # The countdown text disappears with the mode.
         self.seconds_left = 0
         if restore and mode == MODE_ZOOM:
             self._enqueue_command(["zoom", format_float(self._previous_zoom or FALLBACK_ZOOM)])
+        # Ending a preview drops its overrides; the saved config shows again.
         elif restore and mode == MODE_FILTER:
             self._enqueue_command(["preview", "--end"])
         self.emit("changed")
@@ -258,6 +264,7 @@ class TryItController(GObject.Object):
                 finally:
                     done()
 
+            # run_action reports a failure once and then calls finished.
             self.settings.run_action(arguments, finished)
 
         self._enqueue(step)
@@ -271,6 +278,7 @@ class TryItController(GObject.Object):
         if self._step_running or not self._steps:
             return
         self._step_running = True
+        # The step calls _step_finished exactly once when it is done.
         self._steps.pop(0)(self._step_finished)
 
     def _step_finished(self) -> None:

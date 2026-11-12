@@ -8,12 +8,15 @@ import json
 import os
 import shutil
 import socket
+# subprocess starts the Broadway daemon, tempfile makes the scratch dirs.
 import subprocess
 import sys
 import tempfile
+# time paces the polling loops and the daemon start-up.
 import time
 import unittest
 import warnings
+# Path is the file type of the state directory helpers.
 from pathlib import Path
 from typing import Callable, List, Optional
 from unittest import mock
@@ -63,6 +66,7 @@ class FakeZoomctl:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.calls_file = state_dir / "calls.jsonl"
         self.overrides_file = state_dir / "overrides.json"
+        # An empty list means: no canned answers, built-in behaviour only.
         self.overrides_file.write_text("[]", encoding="utf-8")
 
     def respond(self, *prefix: str, **fields) -> None:
@@ -267,9 +271,11 @@ class BroadwayDisplay:
             except OSError:
                 continue
             finally:
+                # Releasing the probe port lets the daemon bind it right after.
                 probe.close()
             socket_name = f"broadway{number + 1}.socket"
             if not os.path.exists(os.path.join(self._runtime_dir(), socket_name)):
+                # The first free display number is used.
                 return number
         raise unittest.SkipTest("no free Broadway display number")
 
@@ -282,6 +288,7 @@ class BroadwayDisplay:
         binary = shutil.which("gtk4-broadwayd")
         if binary is None:
             raise unittest.SkipTest("gtk4-broadwayd is not installed")
+        # Remembering the old sockets protects other users' displays on cleanup.
         self._sockets_before = {
             name for name in os.listdir(self._runtime_dir()) if name.startswith("broadway")
         }
@@ -306,6 +313,7 @@ class BroadwayDisplay:
         if self.daemon is None:
             return
         self.daemon.terminate()
+        # Waiting for the exit makes sure the socket files are really gone.
         self.daemon.wait(timeout=5)
         for name in os.listdir(self._runtime_dir()):
             if name.startswith("broadway") and name not in self._sockets_before:

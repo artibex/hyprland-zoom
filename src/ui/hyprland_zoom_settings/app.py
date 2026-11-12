@@ -7,6 +7,7 @@ from typing import List, Mapping, Optional
 
 import gi
 
+# Adw needs its own pin; both are required before the import below.
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, Gtk  # noqa: E402 - gi.require_version must run first
@@ -14,7 +15,9 @@ from gi.repository import Adw, Gio, Gtk  # noqa: E402 - gi.require_version must 
 from .backend import ZoomctlClient  # noqa: E402
 from .constants import APP_ID, APP_NAME  # noqa: E402
 from .controller import SettingsController  # noqa: E402
-from .paths import resolve_icon_search_dir, resolve_schema_path, resolve_zoomctl_binary  # noqa: E402
+from .paths import (  # noqa: E402
+    resolve_icon_search_dir, resolve_schema_path, resolve_zoomctl_binary,
+)
 from .schema import SchemaError, load_schema  # noqa: E402
 from .styles import install_styles  # noqa: E402
 from .tryit import TryItController  # noqa: E402
@@ -72,6 +75,7 @@ class ZoomSettingsApplication(Adw.Application):
         Adw.Application.do_startup(self)
         icon_dir = resolve_icon_search_dir()
         display = self._display()
+        # Styles must be registered before the first window is built.
         install_styles(display)
         # Installed copies use the system theme; checkouts add their own icon directory.
         if icon_dir:
@@ -107,10 +111,12 @@ class ZoomSettingsApplication(Adw.Application):
         schema_path = resolve_schema_path(self.environment)
         if schema_path is None:
             return self._error_window("settings.schema was not found (is hyprland-zoom installed?)")
+        # A broken schema file must produce an explanation window, not a traceback.
         try:
             schema = load_schema(schema_path)
         except (OSError, SchemaError, ValueError) as error:
             return self._error_window(f"settings.schema could not be read: {error}")
+        # Only a readable schema gets a working zoomctl client and controller.
         client = ZoomctlClient(resolve_zoomctl_binary(self.environment))
         controller = SettingsController(schema, client)
         return SettingsWindow(self, schema, controller, TryItController(controller))
@@ -129,9 +135,11 @@ class ZoomSettingsApplication(Adw.Application):
         page = Adw.StatusPage(icon_name="dialog-error-symbolic", title="Cannot start",
                               description=message)
         view = Adw.ToolbarView()
+        # The header bar keeps the window closable and movable.
         view.add_top_bar(Adw.HeaderBar())
         view.set_content(page)
         window.set_content(view)
+        # The caller presents whichever window came back.
         return window
 
 
@@ -147,5 +155,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     refusal = refuse_root(os.geteuid())
     if refusal:
         print(refusal, file=sys.stderr)
+        # A non-zero code lets launchers see the refusal.
         return EXIT_REFUSED
     return ZoomSettingsApplication().run(sys.argv if argv is None else argv)
