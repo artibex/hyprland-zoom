@@ -36,7 +36,7 @@ def setUpModule():
     from gi.repository import Adw, Gdk, Gio, Gtk
 
     from hyprland_zoom_settings import (
-        app, backend, controller, dialogs, key_capture, layout, pages, rows, schema,
+        app, backend, controller, dialogs, key_capture, pages, rows, schema, sizing,
         shortcut_rows, tryit,
     )
     # Imported only now: GTK must already sit on the Broadway backend.
@@ -58,7 +58,7 @@ def setUpModule():
     GUI.update(
         Adw=Adw, Gdk=Gdk, Gio=Gio, Gtk=Gtk, app=app, backend=backend, controller=controller,
         dialogs=dialogs, rows=rows, schema=schema, tryit=tryit, window=window_module,
-        application=application, key_capture=key_capture, layout=layout, pages=pages,
+        application=application, key_capture=key_capture, sizing=sizing, pages=pages,
         shortcut_rows=shortcut_rows,
     )
 
@@ -116,6 +116,7 @@ class GuiTestCase(FakeZoomctlTestCase):
         self.toasts = []
         self.toast_details = []
         window.add_toast = self.record_toast
+        # Showing the window starts the refreshes; wait for the first answers.
         window.present()
         pump(lambda: controller.status_received and self.fake.calls_matching("config"))
         # Let the rows settle before the call log is cleared.
@@ -274,12 +275,15 @@ class StructureTests(GuiTestCase):
         """Enum values show human labels, never ids such as ``down-in`` (R-P2-10)."""
         window = self.open_window()
         texts = []
+        # Collect every label text the user could read.
         for widget in iter_widgets(window):
             if isinstance(widget, GUI["Gtk"].Label):
                 texts.append(widget.get_label())
+        # Only ids with a dash would look odd on screen.
         schema = GUI["schema"].parse_schema(support.read_schema_text())
         ids = {c for spec in schema.specs for c in spec.choices if "-" in c}
         joined = "\n".join(texts)
+        # None of them may appear.
         for raw in ids:
             self.assertNotIn(raw, joined, raw)
         # The schema's own enum help (which lists ids) is not used as a subtitle.
@@ -290,6 +294,7 @@ class StructureTests(GuiTestCase):
         text = "Use <= 5 & more"
         rows, schema_module = GUI["rows"], GUI["schema"]
         window = self.open_window()
+        # A row context with no-op callbacks: only the construction is under test.
         context = rows.RowContext(
             None, lambda: {}, lambda *_a: None, lambda _m: None,
             lambda: window.controller.status, lambda *_a: None,
@@ -297,6 +302,7 @@ class StructureTests(GuiTestCase):
         switch = rows.build_setting_row(
             schema_module.SettingSpec("X_KEY", "bool", "off", "zoom", "Hue & saturation", text),
             context)
+        # The text must arrive unchanged and without markup.
         self.assertEqual(switch.widget.get_subtitle(), text)
         self.assertFalse(switch.widget.get_use_markup())
         spin = rows.build_setting_row(schema_module.SettingSpec(
@@ -323,6 +329,7 @@ class StructureTests(GuiTestCase):
         """With room, the page list stays visible next to the page."""
         window = self.open_window()
         window.set_default_size(980, 700)
+        # The page list stays visible while there is room.
         pump_for(0.4)
         self.assertFalse(window.split_view.get_collapsed())
 
@@ -330,6 +337,7 @@ class StructureTests(GuiTestCase):
         """At a small width the list and the page are shown one after the other."""
         window = self.open_window()
         window.set_default_size(420, 700)
+        # At a small width the breakpoint collapses the layout.
         pump(lambda: window.split_view.get_collapsed())
         self.assertTrue(window.tryit_bar.get_property("compact"))
         # Activating a list entry moves to its page and shows its title.
@@ -342,13 +350,17 @@ class StructureTests(GuiTestCase):
         """164 % text (this host's setting) opens a larger window that is not collapsed."""
         settings = GUI["Gtk"].Settings.get_default()
         original = settings.get_property("gtk-xft-dpi")
+        # The real scale is restored after the test.
         self.addCleanup(settings.set_property, "gtk-xft-dpi", original)
         settings.set_property("gtk-xft-dpi", round(1.64 * 96 * 1024))
         window = self.open_window()
+        # The window size follows the scale.
         width, height = window.get_default_size()
-        normal = GUI["layout"].default_window_size(1.0, None)
+        normal = GUI["sizing"].default_window_size(1.0, None)
+        # It is larger than the normal size in both directions.
         self.assertGreater(width, normal[0])
         self.assertGreater(height, normal[1])
+        # Let the breakpoint settle before looking at the layout.
         pump_for(1.0)
         self.assertFalse(window.split_view.get_collapsed())
 
@@ -368,6 +380,7 @@ class StructureTests(GuiTestCase):
         """Nothing forces a width: sliders size themselves (R-P2-09)."""
         window = self.open_window()
         for widget in iter_widgets(window):
+            # Only sliders are checked; they used to force a width.
             if isinstance(widget, GUI["Gtk"].Scale):
                 self.assertEqual(widget.get_size_request()[0], -1)
 
@@ -439,9 +452,11 @@ class LiveApplyTests(GuiTestCase):
         """The unit is in the title; 1.50 tenths of a second read as 150 ms (R-P2-21)."""
         window = self.open_window()
         row = self.row(window, "ZOOM_ANIMATION_SPEED")
+        # The unit is part of the title.
         self.assertEqual(row.widget.get_title(), "Animation duration (ms)")
         self.assertEqual(row.widget.get_value(), 150)
         row.widget.set_value(200)
+        # The value is saved in the stored unit: tenths of a second.
         self.wait_for_calls("set")
         self.assertEqual(self.fake.calls_matching("set"), [["set", "ZOOM_ANIMATION_SPEED", "2.00"]])
         self.assertEqual(self.row(window, "SCROLL_EVENT_DELAY_MS").widget.get_title(),
@@ -462,8 +477,10 @@ class LiveApplyTests(GuiTestCase):
         """Path-heavy bookkeeping stays out of the toasts (R-P2-12)."""
         self.fake.respond(
             "set", stderr="zoomctl: backup of /home/u/hyprland.lua saved as /home/u/x.bak\n")
+        # A bookkeeping note is logged, not shown.
         window = self.open_window()
         self.row(window, "ZOOM_SMOOTH_IMAGES").widget.set_active(False)
+        # Give a wrongly shown toast time to appear.
         self.wait_for_calls("set")
         self.settle(0.3)
         self.assertEqual(self.toasts, [])
@@ -480,6 +497,7 @@ class LiveApplyTests(GuiTestCase):
         """Minimum above reset is refused locally with a readable sentence."""
         window = self.open_window()
         self.row(window, "ZOOM_MIN").widget.set_value(3)
+        # Nothing may reach zoomctl; the toast names the settings.
         self.settle(0.6)
         self.assertEqual(self.fake.calls_matching("set"), [])
         self.assertEqual(self.toasts, ["Minimum zoom (3.00) can't be above Reset zoom (1.00)"])
@@ -490,11 +508,14 @@ class LiveApplyTests(GuiTestCase):
         """The real toast has a Details button that opens the technical text."""
         window = self.open_window()
         window.toast_overlay = mock.Mock()
+        # The real add_toast adds an Adw.Toast with a Details button.
         type(window).add_toast(window, "Short sentence", "raw zoomctl text /with/a/path")
         toast = window.toast_overlay.add_toast.call_args[0][0]
         self.assertEqual(toast.get_button_label(), "Details")
+        # The button opens the details dialog.
         self.assertEqual(toast.get_title(), "Short sentence")
         shown = []
+        # Clicking it must pass the sentence and the raw text on.
         with mock.patch.object(GUI["dialogs"], "show_details", lambda *args: shown.append(args)):
             toast.emit("button-clicked")
         self.assertEqual(shown[0][1:], ("Short sentence", "raw zoomctl text /with/a/path"))
@@ -637,11 +658,14 @@ class TrackingPageTests(GuiTestCase):
         """The notice is plain words, names the fallback and offers the how-to."""
         self.fake.respond("config", stdout="ZOOM_TRACKING=margin\n")
         self.fake.set_status(tracking="margin", tracking_effective="edge")
+        # Margin is selected and the plugin is missing.
         window = self.open_window()
         page = self.tracking_page(window)
         self.assertTrue(page.notice_group.get_visible())
+        # The notice is plain words with the fallback named.
         title, body = page._notice.title_label.get_label(), page._notice.subtitle_label.get_label()
         self.assertEqual(title, "Margin mode needs the hyprzoom plugin")
+        # The fix is offered as a button.
         self.assertIn("Hyprland is using Edge with a fixed 5 % margin", body)
         self.assertTrue(page.install_button.get_visible())
         # The slider is locked and says why instead of silently doing nothing.
@@ -655,6 +679,7 @@ class TrackingPageTests(GuiTestCase):
         """With the plugin there is nothing to explain."""
         self.fake.respond("config", stdout="ZOOM_TRACKING=margin\n")
         self.fake.set_status(plugin="loaded", tracking="margin", tracking_effective="margin")
+        # With the plugin the notice is gone and the slider usable.
         window = self.open_window()
         self.assertFalse(self.tracking_page(window).notice_group.get_visible())
         self.assertTrue(self.row(window, "ZOOM_EDGE_MARGIN").widget.get_sensitive())
@@ -668,6 +693,7 @@ class TrackingPageTests(GuiTestCase):
         self.fake.set_status(tracking_effective="follow")
         window.controller.refresh_status()
         pump(lambda: self.tracking_page(window).notice_group.get_visible())
+        # The notice names both modes in words.
         page = self.tracking_page(window)
         self.assertEqual(page._notice.subtitle_label.get_label(),
                          "Centered is selected, but Hyprland uses Follow.")
@@ -677,7 +703,8 @@ class TrackingPageTests(GuiTestCase):
         """The choice lists carry a short question, not the schema help (R-P2-04)."""
         window = self.open_window()
         group = self.row(window, "ZOOM_TRACKING").widget
-        self.assertEqual(group.get_title(), "How should the view follow the pointer?")
+        # The group shows a short question and no schema help.
+        self.assertEqual(group.get_title(), "How to follow the pointer?")
         self.assertFalse(group.get_description())
         self.assertFalse(self.tracking_page(window).get_description())
 
@@ -685,6 +712,7 @@ class TrackingPageTests(GuiTestCase):
         """The button presents the dialog with the commands and the local guide."""
         window = self.open_window()
         shown = []
+        # Clicking the button presents the help dialog.
         with mock.patch.object(GUI["dialogs"], "show_plugin_help", lambda *a: shown.append(a)):
             self.tracking_page(window).install_button.emit("clicked")
         self.assertEqual(len(shown), 1)
@@ -693,13 +721,16 @@ class TrackingPageTests(GuiTestCase):
         """Four commands, each with a copy button, and the shipped guide path."""
         content = GUI["dialogs"].build_plugin_help_content()
         labels = [w.get_label() for w in iter_widgets(content) if isinstance(w, GUI["Gtk"].Label)]
+        # All four commands appear as selectable text.
         for command in ("sudo pacman -S hyprpm",
                         "hyprpm add https://github.com/artibex/hyprland-zoom",
                         "hyprpm enable hyprzoom", "hyprpm reload"):
             self.assertIn(command, labels)
         self.assertTrue(any("/usr/share/doc/hyprland-zoom/plugin.md" in text for text in labels))
+        # Each command has a copy button that confirms visibly.
         buttons = [w for w in iter_widgets(content) if isinstance(w, GUI["Gtk"].Button)]
         self.assertEqual(len(buttons), 4)
+        # Copying changes the icon for a moment.
         buttons[0].emit("clicked")
         self.assertEqual(buttons[0].get_icon_name(), "object-select-symbolic")
 
@@ -737,9 +768,11 @@ class BannerAndMenuTests(GuiTestCase):
         """No compositor is not 'not set up': different words, no Set up button (R-P2-13)."""
         self.fake.set_status(engine="missing", hyprland="unknown")
         window = self.open_window()
+        # The banner and the button locks tell the truth about Hyprland.
         self.assertTrue(window.banner.get_revealed())
         self.assertIn("Hyprland is not reachable", window.banner.get_title())
         self.assertIsNone(window.banner.get_button_label())
+        # The test buttons are locked.
         bar = window.tryit_bar
         # The test buttons are locked and explain why.
         self.assertFalse(bar.zoom_button.get_sensitive())
@@ -750,11 +783,14 @@ class BannerAndMenuTests(GuiTestCase):
         """After 'Set up' the banner asks for a reload instead of repeating itself."""
         self.fake.set_status(engine="missing")
         self.fake.respond("setup", stdout="done\n")
+        # The setup runs from the banner button.
         window = self.open_window()
         window.banner.emit("button-clicked")
         self.wait_for_calls("setup")
+        # Afterwards the banner asks for a reload instead of offering setup again.
         pump(lambda: self.toasts)
         self.assertIn("Reload Hyprland", window.banner.get_title())
+        # No second setup button.
         self.assertFalse(window.banner.get_button_label())
         self.assertTrue(window.banner.get_revealed())
 
@@ -762,6 +798,7 @@ class BannerAndMenuTests(GuiTestCase):
         """Compatibility mode works for zoom; color filters need the engine."""
         self.fake.set_status(engine="legacy")
         window = self.open_window()
+        # No banner, zoom test possible, filter preview locked.
         self.assertFalse(window.banner.get_revealed())
         self.assertTrue(window.tryit_bar.zoom_button.get_sensitive())
         self.assertFalse(window.tryit_bar.filter_button.get_sensitive())
@@ -826,19 +863,22 @@ class TryItTests(GuiTestCase):
         """The line is a friendly sentence: zoom, pointer behavior, filter."""
         self.fake.set_status(zoom="1.50", filter_active="on")
         window = self.open_window()
+        # The sentence reads like plain English.
         line = window.tryit_bar.status_label.get_label()
         self.assertEqual(line, "Zoom 1.5× · Pointer centered · Smart invert on")
-        # The full text is also the tooltip, for when the line is ellipsized.
+        # The tooltip repeats the line.
         self.assertEqual(window.tryit_bar.status_label.get_tooltip_text(), line)
 
     def test_status_line_says_checking_before_the_first_answer(self):
         """No flash of a false error while the first answer is on its way (R-P2-07)."""
         self.fake.respond("status", sleep=1)
         schema = GUI["schema"].parse_schema(support.read_schema_text())
+        # A controller that has not heard from zoomctl yet.
         controller = GUI["controller"].SettingsController(
             schema, GUI["backend"].ZoomctlClient(os.environ["ZOOMCTL_BIN"]))
         session = GUI["tryit"].TryItController(controller, 2, 2, 50)
         bar = GUI["window"].TryItBar(controller, session)
+        # Before the first answer the bar says so and locks its buttons.
         self.assertEqual(bar.status_label.get_label(), "Checking…")
         self.assertFalse(bar.zoom_button.get_sensitive())
 
@@ -889,9 +929,9 @@ class TryItTests(GuiTestCase):
         window = self.open_window(zoom_seconds=100)
         label = window.tryit_bar.countdown_label
         window.tryit_bar.zoom_button.emit("clicked")
-        accessible = GUI["Gtk"].AccessibleProperty.LABEL
-        self.assertFalse(label.get_accessible_label() if hasattr(label, "get_accessible_label")
-                         else "", accessible)
+        # Nothing overrides the label's accessible name, so assistive tools read its text.
+        has_override = hasattr(label, "get_accessible_label") and label.get_accessible_label()
+        self.assertFalse(has_override)
         self.assertIn("back to normal", label.get_label())
 
     def test_stop_button_restores_early(self):
@@ -962,9 +1002,11 @@ class TryItTests(GuiTestCase):
         """Picking another filter while previewing shows that filter (R-P2-11)."""
         window = self.open_window(filter_seconds=100)
         window.tryit_bar.filter_button.emit("clicked")
+        # Wait until the preview runs, then pick another filter.
         self.wait_for_calls("preview")
         self.row(window, "FILTER").buttons["grayscale"].set_active(True)
         self.wait_for_calls("preview", count=2)
+        # The second preview call carries the new filter.
         self.assertEqual(self.fake.calls_matching("preview")[1],
                          ["preview", "FILTER=grayscale", "FILTER_ACTIVE=on"])
 
@@ -972,9 +1014,11 @@ class TryItTests(GuiTestCase):
         """A preview that fails to start does not linger half applied (R-P2-02)."""
         self.fake.respond("preview", "FILTER=smart-invert", stderr="zoomctl: boom\n", rc=1,
                           apply=True)
+        # The start fails after changing state; the UI must end the preview.
         window = self.open_window(filter_seconds=100)
         window.tryit_bar.filter_button.emit("clicked")
         self.wait_for_calls("preview", count=2)
+        # The cleanup call follows and the user sees one error.
         self.assertEqual(self.fake.calls_matching("preview")[1], ["preview", "--end"])
         pump(lambda: window.tryit_bar.filter_button.get_visible())
         self.assertEqual(self.toasts, ["Boom"])
@@ -1010,9 +1054,11 @@ class LiveStateTests(GuiTestCase):
         """Save first, then switch the live filter: both happen, in this order."""
         window = self.open_window()
         self.filter_switch(window).set_active(True)
+        # Saving comes first, the live switch second.
         self.wait_for_calls("filter")
         self.assertEqual(self.fake.calls_matching("set"), [["set", "FILTER_ACTIVE", "on"]])
         self.assertEqual(self.fake.calls_matching("filter"), [["filter", "on"]])
+        # The order is part of the behavior: set, then filter.
         order = [call[0] for call in self.fake.calls() if call[0] in ("set", "filter")]
         self.assertEqual(order, ["set", "filter"])
         # The switch stays on once the engine confirmed it.
@@ -1028,9 +1074,11 @@ class LiveStateTests(GuiTestCase):
         """When the save fails nothing is switched and the switch shows the screen."""
         self.fake.respond("set", stderr="zoomctl: the engine said no\n", rc=1)
         window = self.open_window()
+        # The save is refused, so the live filter must stay as it is.
         self.filter_switch(window).set_active(True)
         self.wait_for_calls("set")
         pump(lambda: self.toasts)
+        # Nothing may switch the filter afterwards.
         self.settle(0.3)
         self.assertEqual(self.fake.calls_matching("filter"), [])
         pump(lambda: not self.filter_switch(window).get_active())
@@ -1039,9 +1087,11 @@ class LiveStateTests(GuiTestCase):
         """The revert must not depend on the follow-up config read (R-P2-19)."""
         self.fake.respond("set", stderr="zoomctl: no\n", rc=1)
         self.fake.respond("config", stderr="zoomctl: cannot read\n", rc=1)
+        # Both the write and the re-read fail: the revert comes from the failed write.
         window = self.open_window()
         switch = self.row(window, "ZOOM_SMOOTH_IMAGES").widget
         switch.set_active(False)
+        # The switch must jump back without any help from the re-read.
         self.wait_for_calls("config")
         pump(lambda: switch.get_active())
         self.assertTrue(switch.get_active())
@@ -1057,6 +1107,7 @@ class LiveStateTests(GuiTestCase):
         """Activating the window triggers a config read."""
         window = self.open_window()
         self.fake.respond("config", stdout="ZOOM_STEP=0.66\n")
+        # Focus returning triggers a config read.
         window._on_active_changed(window, None)
         self.wait_for_calls("config")
         pump(lambda: abs(self.row(window, "ZOOM_STEP").scale.get_value() - 0.66) < 0.001)
@@ -1133,12 +1184,15 @@ class KeyCaptureTests(GuiTestCase):
         """Mouse and switch users can leave the capture dialog (R-P2-15)."""
         window = self.open_window()
         dialog = self.open_capture(window, "BIND_KEY_IN")
+        # The dialog offers exactly one button.
         buttons = [w for w in iter_widgets(dialog) if isinstance(w, GUI["Gtk"].Button)]
         self.assertEqual([b.get_label() for b in buttons], ["Cancel"])
         closed = []
+        # Clicking Cancel closes the dialog without assigning anything.
         dialog.connect("closed", lambda _d: closed.append(1))
         dialog.present(window)
         buttons[0].emit("clicked")
+        # Nothing was assigned.
         pump(lambda: closed)
         self.assertEqual(self.fake.calls_matching("set"), [])
 
@@ -1146,9 +1200,11 @@ class KeyCaptureTests(GuiTestCase):
         """A held Enter must not auto-repeat into the capture (R-P2-15)."""
         window = self.open_window()
         dialog = self.open_capture(window, "BIND_KEY_IN")
+        # A key right after opening belongs to the click that opened the dialog.
         keyval = GUI["Gdk"].keyval_from_name("Return")
         self.assertFalse(dialog.armed)
         self.assertTrue(dialog._on_key_pressed(None, keyval, 0, 0))
+        # Nothing was assigned.
         self.settle(0.2)
         self.assertEqual(self.fake.calls_matching("set"), [])
         # Escape still reaches the dialog inside the grace period.
@@ -1197,9 +1253,11 @@ class KeyCaptureTests(GuiTestCase):
         """SUPER, SHIFT, CTRL, ALT: the same text zoomctl would store (R-P2-21)."""
         window = self.open_window()
         toggles = self.row(window, "BIND_MODIFIERS").toggles
+        # The toggles come in zoomctl's own order.
         self.assertEqual(list(toggles), ["SUPER", "SHIFT", "CTRL", "ALT"])
         toggles["CTRL"].set_active(True)
         toggles["SHIFT"].set_active(True)
+        # Both changes are sent; the last one has all four modifiers.
         self.wait_for_calls("set", count=2)
         self.assertEqual(self.fake.calls_matching("set")[-1][2], "SUPER + SHIFT + CTRL + ALT")
 

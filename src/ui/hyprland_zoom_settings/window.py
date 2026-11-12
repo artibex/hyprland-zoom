@@ -10,6 +10,7 @@ from typing import List
 
 import gi
 
+# Toolkit versions are pinned before the first import from gi.repository.
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 gi.require_version("Adw", "1")
@@ -20,7 +21,7 @@ from .constants import (  # noqa: E402
     APP_NAME, COLLAPSE_CONDITION, CONFIG_POLL_TICKS, STATUS_REFRESH_SECONDS,
 )
 from .controller import SettingsController  # noqa: E402
-from .layout import default_window_size, monitor_size, text_scale  # noqa: E402
+from .layout import monitor_size, text_scale  # noqa: E402
 from .messages import friendly_notice  # noqa: E402
 from .navigation import PageList  # noqa: E402
 from .pages import SettingsPage, build_pages  # noqa: E402
@@ -29,6 +30,7 @@ from .porcelain import (  # noqa: E402
 )
 from .row_base import RowContext  # noqa: E402
 from .schema import SettingsSchema  # noqa: E402
+from .sizing import default_window_size  # noqa: E402
 from .tryit import TryItController  # noqa: E402
 from .tryit_bar import TryItBar  # noqa: E402
 
@@ -74,6 +76,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.status_refresh_seconds = status_refresh_seconds
         self._status_timer_id = 0
         self._ticks = 0
+        # Set after a successful setup, until Hyprland was reloaded.
         self._setup_done = False
         self.pages: List[SettingsPage] = []
         # The layout needs the schema, the rest only needs the controllers.
@@ -110,6 +113,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             )
         self.banner = Adw.Banner(revealed=False, use_markup=False)
         self.banner.connect("button-clicked", self._on_banner_clicked)
+        # The Try-it bar spans the window width below both panes.
         self.tryit_bar = TryItBar(self.controller, self.session)
         outer = Adw.ToolbarView()
         # The banner sits above both panes, the Try-it bar below them.
@@ -129,12 +133,15 @@ class SettingsWindow(Adw.ApplicationWindow):
         """
         self.page_list = PageList(self.pages, self._on_page_selected, self._on_page_opened)
         sidebar_view = Adw.ToolbarView()
+        # The sidebar lists the pages; its header carries the main menu.
         sidebar_view.add_top_bar(self._build_sidebar_header())
         sidebar_view.set_content(Gtk.ScrolledWindow(child=self.page_list, vexpand=True))
         self.sidebar_page = Adw.NavigationPage(title=APP_NAME, child=sidebar_view, tag="pages")
+        # The content pane shows the selected page under its own header.
         self.content_header = Adw.HeaderBar()
         content_view = Adw.ToolbarView()
         content_view.add_top_bar(self.content_header)
+        # Both panes are navigation pages of one split view.
         content_view.set_content(self.stack)
         self.content_page = Adw.NavigationPage(title=self.pages[0].get_title(),
                                                child=content_view, tag="content")
@@ -299,12 +306,14 @@ class SettingsWindow(Adw.ApplicationWindow):
         """
         if not self.controller.status_received:
             return
+        # The state decides which banner (if any) is shown.
         state = self.controller.status.state
         title, button = self._banner_text(state)
         # A state without a banner text means everything works well enough.
         if title:
             self.banner.set_title(title)
             self.banner.set_button_label(button)
+        # An empty title hides the banner.
         self.banner.set_revealed(bool(title))
         if state == STATE_READY:
             self._setup_done = False
@@ -319,9 +328,11 @@ class SettingsWindow(Adw.ApplicationWindow):
             ``(title, button label)``; an empty title hides the banner, a None label hides
             the button (nothing the app could run would help).
         """
+        # Without zoomctl nothing can be changed or tested.
         if state == STATE_NO_ZOOMCTL:
             reason = friendly_notice(self.controller.status_problem or "no answer").summary
             return f"zoomctl is not available: {reason} Changes cannot be applied.", None
+        # A missing compositor cannot be fixed by setting anything up.
         if state == STATE_NO_HYPRLAND:
             return BANNER_NO_HYPRLAND, None
         if state == STATE_NEEDS_SETUP:

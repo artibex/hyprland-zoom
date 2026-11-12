@@ -5,7 +5,7 @@ import unittest
 
 import support
 
-from hyprland_zoom_settings import keys, layout, messages, porcelain, presentation, values
+from hyprland_zoom_settings import keys, messages, porcelain, presentation, sizing, values
 from hyprland_zoom_settings.schema import SchemaError, parse_schema
 
 
@@ -248,9 +248,11 @@ class PorcelainTests(unittest.TestCase):
         """'Checking…' is neutral; an unreachable Hyprland is told apart from setup."""
         self.assertEqual(porcelain.describe_status(porcelain.EngineStatus(), received=False),
                          "Checking…")
+        # An unreachable compositor is told apart from a missing setup.
         gone = porcelain.parse_status("engine=missing\nhyprland=unknown")
         self.assertEqual(gone.state, porcelain.STATE_NO_HYPRLAND)
         self.assertEqual(porcelain.describe_status(gone), "Hyprland is not reachable")
+        # With a reachable compositor the same answer means: set it up.
         unset = porcelain.parse_status("engine=missing\nhyprland=0.56.2")
         self.assertEqual(unset.state, porcelain.STATE_NEEDS_SETUP)
 
@@ -268,11 +270,13 @@ class PorcelainTests(unittest.TestCase):
         """Margin without the plugin gets ONE notice that offers the installation."""
         base = "engine=lua\nhyprland=0.56.2\n"
         missing = porcelain.parse_status(base + "tracking_effective=edge\nplugin=missing")
+        # Margin without the plugin offers the installation.
         notice = porcelain.tracking_notice("margin", missing)
         self.assertTrue(notice.needs_plugin)
         self.assertIn("Edge with a fixed 5 % margin", notice.body)
         # No raw identifiers in the sentence.
         self.assertNotIn("tracking", notice.body)
+        # With the plugin loaded there is nothing to explain.
         loaded = porcelain.parse_status(base + "tracking_effective=margin\nplugin=loaded")
         self.assertIsNone(porcelain.tracking_notice("margin", loaded))
         # Another mode that works as configured needs no words either.
@@ -290,8 +294,10 @@ class MessageTests(unittest.TestCase):
         notice = messages.friendly_notice(
             "zoomctl: saved, but the engine rejected the reload: error: unknown key"
         )
+        # The jargon is replaced; the raw text stays as details.
         self.assertEqual(notice.summary, "Saved, but Hyprland could not apply the change.")
         self.assertIn("engine rejected the reload", notice.details)
+        # Offline notes are plain too.
         offline = messages.friendly_notice("zoomctl: engine not reachable, saved only")
         self.assertIn("Hyprland is not reachable", offline.summary)
 
@@ -306,8 +312,10 @@ class MessageTests(unittest.TestCase):
         """Short text is shown capitalized, path-heavy or long text is replaced."""
         self.assertEqual(messages.friendly_notice("zoomctl: something odd").summary,
                          "Something odd")
+        # Path-heavy text is replaced by a generic sentence plus details.
         long_text = "zoomctl: cannot read /etc/zoomctl/a/b/c because of a very strange reason"
         notice = messages.friendly_notice(long_text)
+        # The raw text stays available.
         self.assertEqual(notice.summary, "zoomctl reported a problem.")
         self.assertIn("/etc/zoomctl", notice.details)
 
@@ -326,6 +334,7 @@ class CrossFieldTests(unittest.TestCase):
         """Min above reset is refused with both labels and the current value."""
         schema = real_schema()
         labels = {spec.key: spec.label for spec in schema.specs}
+        # The defaults are MIN 1, RESET 1, MAX 10.
         config = schema.defaults()
         message = values.check_zoom_order(labels, config, "ZOOM_MIN", "2.00")
         self.assertEqual(message, "Minimum zoom (2.00) can't be above Reset zoom (1.00)")
@@ -339,13 +348,14 @@ class LayoutTests(unittest.TestCase):
 
     def test_default_size_grows_with_text_and_stays_on_the_monitor(self):
         """164 % text gets a bigger window; a small monitor caps it."""
-        normal = layout.default_window_size(1.0, None)
-        large = layout.default_window_size(1.64, None)
+        normal = sizing.default_window_size(1.0, None)
+        large = sizing.default_window_size(1.64, None)
+        # Larger text gets a larger window in both directions.
         self.assertGreater(large[0], normal[0])
         self.assertGreater(large[1], normal[1])
         # Text smaller than normal never shrinks below the base size.
-        self.assertEqual(layout.default_window_size(0.8, None), normal)
-        capped = layout.default_window_size(1.64, (1280, 720))
+        self.assertEqual(sizing.default_window_size(0.8, None), normal)
+        capped = sizing.default_window_size(1.64, (1280, 720))
         self.assertLessEqual(capped[0], 1280 * 0.9)
         self.assertLessEqual(capped[1], 720 * 0.9)
 
@@ -383,6 +393,7 @@ class PresentationTests(unittest.TestCase):
         """Lists need a heading that is not the page title; ms settings convert."""
         for key in presentation.CHOICE_LIST_KEYS:
             self.assertIn(key, presentation.CHOICE_QUESTIONS)
+        # Units are converted where people think in other units.
         unit = presentation.display_unit("ZOOM_ANIMATION_SPEED")
         self.assertEqual((unit.suffix, unit.factor), ("ms", 100.0))
         self.assertIsNone(presentation.display_unit("ZOOM_STEP"))
@@ -391,6 +402,7 @@ class PresentationTests(unittest.TestCase):
         """E13: no British spellings in titles and option texts."""
         texts = [info.title + info.description for info in presentation.GROUPS]
         for options in presentation.OPTION_TEXT.values():
+            # Every option label and explanation is checked.
             texts += [label + text for label, text in options.values()]
         for word in ("colour", "Colour", "Centred", "recognis", "Behaviour"):
             self.assertFalse([t for t in texts if word in t], word)

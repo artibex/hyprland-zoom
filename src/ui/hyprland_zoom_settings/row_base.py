@@ -217,6 +217,7 @@ class StackedRow:
         # The subtitle looks like the one of an action row: smaller and dimmed.
         self.subtitle_label.add_css_class("dim-label")
         self.subtitle_label.add_css_class("caption")
+        # Title, help text and control are stacked vertically.
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         for part in (self.title_label, self.subtitle_label, control):
             box.append(part)
@@ -244,6 +245,7 @@ class SettingRow:
         """
         self.spec = spec
         self.context = context
+        # The widget is the libadwaita row or group this object drives.
         self.widget = widget
         self._updating = False
         # Set by rows that draw their own subtitle label (see StackedRow).
@@ -293,6 +295,7 @@ class SettingRow:
         # Programmatic updates are not user edits.
         if self._updating:
             return
+        # The done callback is passed on only when there is one.
         if on_done is None:
             self.context.on_change(self.spec.key, text)
         else:
@@ -321,6 +324,7 @@ class SettingRow:
         # The reason replaces the help text so the user sees it exactly where it matters.
         self.widget.set_sensitive(reason is None)
         text = self.spec.help if reason is None else reason
+        # Stacked rows own a label; libadwaita rows have a subtitle property.
         if self.subtitle_label is not None:
             self.subtitle_label.set_label(text)
         elif hasattr(self.widget, "set_subtitle"):

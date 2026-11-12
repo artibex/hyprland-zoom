@@ -22,6 +22,20 @@ gui_dir() {
   cd "$(dirname "${BASH_SOURCE[0]}")" && pwd
 }
 
+# toolkit_importable — tell whether PyGObject with GTK 4 and libadwaita can be imported.
+# Args:    none
+# Returns: 0 when the import works; 1 when it fails; stdout: nothing
+# Globals: none
+toolkit_importable() {
+  # The probe comes from stdin, so the Python code needs no shell quoting.
+  python3 - >/dev/null 2>&1 <<'PROBE'
+import gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gtk
+PROBE
+}
+
 # missing_prerequisite — name the first missing piece of the GUI test stack.
 # Args:    none
 # Returns: 0 when something is missing; 1 when everything is there; stdout: what is missing
@@ -33,10 +47,7 @@ missing_prerequisite() {
     return 0
   fi
   # One import probes PyGObject, GTK 4 and libadwaita together.
-  if ! python3 -c 'import gi
-gi.require_version("Gtk", "4.0")
-gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk' >/dev/null 2>&1; then
+  if ! toolkit_importable; then
     printf 'PyGObject with GTK 4 and libadwaita (python3 gi)\n'
     return 0
   fi
@@ -45,6 +56,7 @@ from gi.repository import Adw, Gtk' >/dev/null 2>&1; then
     printf 'gtk4-broadwayd\n'
     return 0
   fi
+  # Nothing is missing: the tests can run.
   return 1
 }
 
@@ -59,6 +71,7 @@ main() {
     printf 'SKIP tests/gui: %s not available\n' "$missing"
     exit "$SKIP_STATUS"
   fi
+  # The directory is resolved only now: a skipped run needs nothing else.
   directory="$(gui_dir)"
   # -t keeps the directory itself the top level, so the tests can `import support`.
   exec python3 -m unittest discover \

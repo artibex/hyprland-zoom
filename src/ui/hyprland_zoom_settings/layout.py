@@ -1,8 +1,8 @@
 """Layout helpers: the text scale of the desktop and the window size that follows from it.
 
 Window sizes are in pixels while text grows with the user's text scale, so a fixed default
-size that is comfortable at 100 % text is cramped at 164 %. The default size therefore grows
-with the scale (never beyond the monitor).
+size that is comfortable at 100 % text is cramped at 164 %; ``sizing.default_window_size``
+turns the scale read here into a size (kept GTK-free so it can be unit tested).
 """
 
 # typing documents the size tuple.
@@ -14,9 +14,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gdk, Gtk  # noqa: E402 - gi.require_version must run first
 
-from .constants import (  # noqa: E402
-    BASE_HEIGHT, BASE_WIDTH, MONITOR_FRACTION, REFERENCE_DPI, XFT_DPI_DIVISOR,
-)
+from .constants import REFERENCE_DPI, XFT_DPI_DIVISOR  # noqa: E402
 
 
 def text_scale(settings: Optional[Gtk.Settings] = None) -> float:
@@ -53,26 +51,3 @@ def monitor_size(display: Optional[Gdk.Display]) -> Optional[Tuple[int, int]]:
         return None
     geometry = monitors.get_item(0).get_geometry()
     return (geometry.width, geometry.height) if geometry.width > 0 else None
-
-
-def default_window_size(
-    scale: float, monitor: Optional[Tuple[int, int]]
-) -> Tuple[int, int]:
-    """Choose the window size that fits the text scale and the monitor.
-
-    Args:
-        scale: Text scale (1.0 = normal).
-        monitor: Monitor size in pixels, or None when unknown.
-
-    Returns:
-        ``(width, height)``; larger text gets a proportionally larger window, but never more
-        than ``MONITOR_FRACTION`` of the monitor.
-    """
-    # Smaller than normal text does not shrink the window below its base size.
-    factor = max(1.0, scale)
-    width, height = round(BASE_WIDTH * factor), round(BASE_HEIGHT * factor)
-    if monitor is None:
-        return width, height
-    # The window must stay reachable: it is capped to a share of the monitor.
-    return (min(width, round(monitor[0] * MONITOR_FRACTION)),
-            min(height, round(monitor[1] * MONITOR_FRACTION)))

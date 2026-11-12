@@ -42,6 +42,7 @@ class DisplayUnit:
 
     suffix: str
     factor: float = 1.0
+    # None means: use the schema precision and the default step.
     digits: Optional[int] = None
     step: Optional[float] = None
 
@@ -67,10 +68,10 @@ CHOICE_LIST_KEYS = frozenset(
 
 # The short question above a choice list (never the page title, never the schema help).
 CHOICE_QUESTIONS: Dict[str, str] = {
-    "ZOOM_TRACKING": "How should the view follow the pointer?",
-    "FILTER": "Which color filter should be used?",
-    "ZOOM_STEP_MODE": "How should one zoom step work?",
-    "BIND_SCROLL_DIRECTION": "Which scroll direction zooms in?",
+    "ZOOM_TRACKING": "How to follow the pointer?",
+    "FILTER": "Which color filter?",
+    "ZOOM_STEP_MODE": "How does a step work?",
+    "BIND_SCROLL_DIRECTION": "Which direction zooms in?",
 }
 
 # Short label and one-sentence explanation of every known enum option, per setting key.

@@ -131,10 +131,12 @@ class TrackingPage(SettingsPage):
             None.
         """
         super().__init__(info, specs, context)
+        # The button opens the installation help dialog.
         self.install_button = Gtk.Button(label="How to install…", halign=Gtk.Align.START)
         self.install_button.connect(
             "clicked", lambda button: dialogs.show_plugin_help(button)
         )
+        # One notice slot (title, body, button) that is filled and shown on demand.
         self._notice = StackedRow("", "", self.install_button)
         self.notice_group = Adw.PreferencesGroup(visible=False)
         self.notice_group.add(self._notice.widget)
@@ -142,6 +144,7 @@ class TrackingPage(SettingsPage):
         margin_group = self.group_of.get(EDGE_MARGIN_KEY)
         if margin_group is not None:
             self.remove(margin_group)
+        # The margin group is re-added after the notice.
         self.add(self.notice_group)
         if margin_group is not None:
             self.add(margin_group)
@@ -179,6 +182,7 @@ class TrackingPage(SettingsPage):
         self.notice_group.set_visible(notice is not None)
         if notice is None:
             return
+        # The texts come from the notice; the install button only fits the plugin case.
         self._notice.title_label.set_label(notice.title)
         self._notice.subtitle_label.set_label(notice.body)
         # Only the missing plugin can be fixed by installing something.

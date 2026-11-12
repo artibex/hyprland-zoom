@@ -108,6 +108,7 @@ class KeyCaptureDialog(Adw.Dialog):
         # Lone modifiers and unknown keys are not bindable: swallow them.
         if name is None:
             return True
+        # Only an accepted key closes the dialog; a refused one lets the user retry.
         if self._on_key(name):
             self.close()
         return True

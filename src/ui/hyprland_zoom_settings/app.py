@@ -7,6 +7,7 @@ import os
 import sys
 from typing import List, Mapping, Optional
 
+# gi pins the toolkit versions before any GTK import below.
 import gi
 
 # Adw needs its own pin; both are required before the import below.

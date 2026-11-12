@@ -126,6 +126,7 @@ class LiveFilterSwitchRow(SwitchSettingRow):
         """
         if self._updating:
             return
+        # Remember the request so a status refresh does not flip the switch back.
         wanted = self.widget.get_active()
         self._requested = wanted
         # The saved default first (it reloads the engine), then the live switch.
@@ -181,8 +182,10 @@ class ScaleSettingRow(DebouncedRow):
             orientation=Gtk.Orientation.HORIZONTAL, adjustment=adjustment, digits=SLIDER_DIGITS,
             draw_value=True, value_pos=Gtk.PositionType.RIGHT, hexpand=True,
         )
+        # The slider sits below the title and help text (see StackedRow).
         stacked = StackedRow(spec.label, spec.help, self.scale)
         super().__init__(spec, context, stacked.widget)
+        # The help label is kept so a lock reason can replace it.
         self.subtitle_label = stacked.subtitle_label
         label_accessibly(self.scale, spec.label, spec.help)
         # Dragging fires value-changed continuously; the debouncer sends one change.
@@ -228,6 +231,7 @@ class SpinSettingRow(DebouncedRow):
         """
         unit = display_unit(spec.key) or DisplayUnit("")
         self._factor = unit.factor
+        # Units may change the shown precision and step.
         digits = float_digits(spec) if unit.digits is None else unit.digits
         step = unit.step or (1.0 if digits == 0 else 0.1)
         adjustment = Gtk.Adjustment(
@@ -331,6 +335,7 @@ class ChoiceListRow(SettingRow):
         question = choice_question(spec.key, spec.label)
         group = make_plain_group(question)
         super().__init__(spec, context, group)
+        # Screen readers get the question plus the schema help as description.
         label_accessibly(group, question, spec.help)
         self.option_rows: Dict[str, Adw.ActionRow] = {}
         # Public so tests and the page can reach the radio buttons by option.

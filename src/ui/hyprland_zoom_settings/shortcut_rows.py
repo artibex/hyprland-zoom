@@ -16,7 +16,9 @@ from gi.repository import Adw, Gtk  # noqa: E402 - gi.require_version must run f
 
 from .key_capture import KeyCaptureDialog  # noqa: E402
 from .keys import MODIFIER_CAP_NAMES, chord_parts, find_key_conflict  # noqa: E402
-from .row_base import RowContext, SettingRow, StackedRow, children_of, label_accessibly  # noqa: E402
+from .row_base import (  # noqa: E402
+    RowContext, SettingRow, StackedRow, children_of, label_accessibly,
+)
 from .schema import SettingSpec  # noqa: E402
 from .values import MODIFIER_ORDER, modifiers_text, parse_modifiers  # noqa: E402
 
@@ -52,6 +54,7 @@ class ModifiersSettingRow(SettingRow):
         """
         box = wrapping_controls()
         stacked = StackedRow(spec.label, spec.help, box)
+        # The toggles are stacked below the text of the row.
         super().__init__(spec, context, stacked.widget)
         self.subtitle_label = stacked.subtitle_label
         self.toggles: Dict[str, Gtk.ToggleButton] = {}
@@ -121,6 +124,7 @@ class KeySettingRow(SettingRow):
         """
         controls = wrapping_controls()
         stacked = StackedRow(spec.label, spec.help, controls)
+        # Keycaps, buttons and the disabled marker flow below the title.
         super().__init__(spec, context, stacked.widget)
         self.subtitle_label = stacked.subtitle_label
         self.keycaps = Gtk.Box(spacing=4, valign=Gtk.Align.CENTER)

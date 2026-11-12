@@ -11,6 +11,7 @@ ENGINE_LUA = "lua"
 ENGINE_LEGACY = "legacy"
 ENGINE_MISSING = "missing"
 ENGINE_UNREACHABLE = "unreachable"
+# Plugin state word of contract C6.
 PLUGIN_LOADED = "loaded"
 # What zoomctl reports as the compositor version when it cannot reach Hyprland.
 HYPRLAND_UNKNOWN = "unknown"
@@ -22,6 +23,7 @@ STATE_READY = "ready"
 STATE_COMPATIBILITY = "compatibility"
 STATE_NEEDS_SETUP = "needs-setup"
 STATE_NO_HYPRLAND = "no-hyprland"
+# zoomctl itself did not answer.
 STATE_NO_ZOOMCTL = "no-zoomctl"
 
 
@@ -108,6 +110,7 @@ class EngineStatus:
         """
         if self.engine == ENGINE_UNREACHABLE:
             return STATE_NO_ZOOMCTL
+        # The normal case: the Lua engine answers.
         if self.engine == ENGINE_LUA:
             return STATE_READY
         # Without a reachable compositor no setup can help, so it is told apart.
@@ -173,6 +176,7 @@ def describe_status(status: EngineStatus, received: bool = True) -> str:
         STATE_NO_HYPRLAND: "Hyprland is not reachable",
         STATE_NEEDS_SETUP: "The zoom engine is not set up",
     }.get(status.state)
+    # A state that cannot show details is reported as one plain sentence.
     if unusable:
         return unusable
     parts = [f"Zoom {format_zoom(status.zoom)}", _tracking_phrase(status), _filter_phrase(status)]
@@ -239,6 +243,7 @@ def tracking_notice(configured: str, status: EngineStatus) -> Optional[TrackingN
     # Nothing is known before the engine answers, so there is nothing to explain.
     if status.state != STATE_READY:
         return None
+    # Margin without its plugin has its own explanation and a fix.
     if configured == MARGIN_MODE and not status.plugin_loaded:
         return _missing_plugin_notice(status)
     effective = status.tracking_effective

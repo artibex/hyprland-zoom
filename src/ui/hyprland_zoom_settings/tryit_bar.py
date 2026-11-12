@@ -34,6 +34,7 @@ class TryItBar(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.settings = settings
         self.session = session
+        # Initial state of the announcement tracker and the compact form.
         self._last_mode = MODE_IDLE
         self._compact = False
         # One literal for all four margins keeps the bar from touching the edges.
@@ -79,10 +80,12 @@ class TryItBar(Gtk.Box):
         self.heading = Gtk.Label(label="Try it", xalign=0.0)
         # The heading style follows the theme's own title weight.
         self.heading.add_css_class("heading")
-        # One ellipsized line: the full text is in the tooltip, so the bar never grows tall.
-        self.status_label = Gtk.Label(xalign=0.0, hexpand=True, ellipsize=Pango.EllipsizeMode.END)
+        # The sentence wraps instead of being cut, so nothing is lost at large text sizes.
+        self.status_label = Gtk.Label(xalign=0.0, hexpand=True, wrap=True,
+                                      wrap_mode=Pango.WrapMode.WORD_CHAR)
         self.status_label.add_css_class("dim-label")
         self.status_label.add_css_class("caption")
+        # The heading and the status share one line.
         row.append(self.heading)
         row.append(self.status_label)
         self.append(row)
@@ -148,6 +151,7 @@ class TryItBar(Gtk.Box):
         self.revert_button.set_visible(mode == MODE_FILTER)
         self.countdown_label.set_visible(not idle)
         self.countdown_label.set_label(self._countdown_text(mode))
+        # Status line, locks and announcements follow the same state.
         self._refresh_status_line()
         self._refresh_sensitivity()
         self._announce_transition(mode)
@@ -160,7 +164,7 @@ class TryItBar(Gtk.Box):
         """
         text = describe_status(self.settings.status, self.settings.status_received)
         self.status_label.set_label(text)
-        # The ellipsis may hide the end at large text sizes; the tooltip never does.
+        # The tooltip repeats the line for pointer users who hover it.
         self.status_label.set_tooltip_text(text)
 
     def _refresh_sensitivity(self) -> None:
@@ -172,6 +176,7 @@ class TryItBar(Gtk.Box):
         status, received = self.settings.status, self.settings.status_received
         zoom_ok = received and status.state in (STATE_READY, STATE_COMPATIBILITY)
         filter_ok = received and status.state == STATE_READY
+        # Locked buttons cannot start a test the engine cannot do.
         self.zoom_button.set_sensitive(zoom_ok)
         self.filter_button.set_sensitive(filter_ok)
         # A locked button explains itself instead of silently doing nothing.

@@ -242,6 +242,7 @@ class ControllerTests(ControllerFixture):
         """MIN above RESET never reaches zoomctl; the message names the labels."""
         verdict = self.controller.set_value("ZOOM_MIN", "3")
         self.assertFalse(verdict.ok)
+        # The message names both settings by label, never by key.
         self.assertEqual(self.errors, ["Minimum zoom (3.00) can't be above Reset zoom (1.00)"])
         pump_for(0.2)
         self.assertEqual(self.fake.calls_matching("set"), [])
@@ -250,6 +251,7 @@ class ControllerTests(ControllerFixture):
         """A rejected change must not depend on the follow-up config read to be undone."""
         self.fake.respond("set", stderr="zoomctl: no\n", rc=1)
         self.fake.respond("config", stderr="zoomctl: cannot read\n", rc=1)
+        # A failing set followed by a failing read: nothing else can undo the edit.
         outcomes = []
         self.controller.set_value("ZOOM_STEP", "0.5", outcomes.append)
         pump(lambda: outcomes)
@@ -264,9 +266,11 @@ class ControllerTests(ControllerFixture):
         """The periodic re-read stays silent without news."""
         self.controller.refresh_config()
         pump(lambda: self.config_changes)
+        # Remember how many redraws the first read caused.
         seen = len(self.config_changes)
         self.controller.refresh_config()
         self.wait_for_calls("config", count=2)
+        # Give a wrongly emitted signal time to arrive.
         pump_for(0.2)
         self.assertEqual(len(self.config_changes), seen)
         # An external change is noticed.
@@ -393,9 +397,11 @@ class TryItTests(ControllerFixture):
         """A refused preview may have applied part of it, so it is ended (R-P2-02)."""
         self.fake.respond("preview", "FILTER=smart-invert", stderr="zoomctl: boom\n", rc=1,
                           apply=True)
+        # The start fails after having changed the state, like a half applied preview.
         session = self.make()
         session.start_filter_preview()
         pump(lambda: session.mode == tryit.MODE_IDLE)
+        # The cleanup call follows the failed start.
         self.wait_for_calls("preview", count=2)
         self.assertEqual(self.fake.calls_matching("preview")[1], ["preview", "--end"])
         pump_for(0.2)
@@ -406,9 +412,11 @@ class TryItTests(ControllerFixture):
         """The newly saved filter shows up in the running preview and the countdown restarts."""
         session = self.make(filter_seconds=50)
         session.start_filter_preview()
+        # Wait until the preview runs before changing the filter.
         self.wait_for_calls("preview")
         session.seconds_left = 10
         self.controller.set_value("FILTER", "grayscale")
+        # The changed filter must show up in a second preview call.
         self.wait_for_calls("preview", count=2)
         self.assertEqual(self.fake.calls_matching("preview")[1],
                          ["preview", "FILTER=grayscale", "FILTER_ACTIVE=on"])
@@ -421,8 +429,10 @@ class TryItTests(ControllerFixture):
         """Idle sessions ignore filter changes."""
         session = self.make()
         self.controller.set_value("FILTER", "invert")
+        # The change is saved but there is no preview to follow it.
         self.wait_for_calls("set")
         pump_for(0.3)
+        # Idle sessions start nothing.
         self.assertEqual(self.fake.calls_matching("preview"), [])
         self.assertEqual(session.mode, tryit.MODE_IDLE)
 

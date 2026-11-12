@@ -113,6 +113,7 @@ class TryItController(GObject.Object):
         if self.busy:
             return
         self._begin(MODE_FILTER, self.filter_seconds)
+        # Remember the shown filter so a later change can update the preview.
         self._previewed_filter = self.settings.values[FILTER_KEY]
         # The preview forces the configured filter on without saving anything.
         self._enqueue_command(self._preview_arguments(), self._on_start_result)
@@ -169,6 +170,7 @@ class TryItController(GObject.Object):
         """
         if result.ok or not self.busy:
             return
+        # The mode is read first: ending the test clears it.
         mode = self.mode
         self._end(restore=False)
         # A refused preview may still have applied part of its overrides: end it quietly.

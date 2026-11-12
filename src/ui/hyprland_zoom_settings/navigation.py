@@ -37,9 +37,11 @@ class PageList(Gtk.ListBox):
         self.add_css_class("navigation-sidebar")
         self._entries: Dict[str, Gtk.ListBoxRow] = {}
         self._group_of_row: Dict[Gtk.ListBoxRow, str] = {}
+        # One list entry per page, remembered both ways for the callbacks.
         for page in pages:
             entry = self._build_entry(page)
             self._entries[page.group_id] = entry
+            # Both lookups are needed: by group for selecting, by row for callbacks.
             self._group_of_row[entry] = page.group_id
             self.append(entry)
         # Selection and activation are separate: activating an already selected entry
@@ -59,11 +61,13 @@ class PageList(Gtk.ListBox):
         """
         box = Gtk.Box(spacing=12)
         box.append(Gtk.Image(icon_name=page.get_icon_name()))
+        # Long titles wrap instead of being cut off.
         title = Gtk.Label(label=page.get_title(), xalign=0.0, wrap=True, hexpand=True)
         box.append(title)
         # Comfortable padding also gives large touch/pointer targets.
         for side in ("top", "bottom"):
             getattr(box, f"set_margin_{side}")(10)
+        # The row carries the page summary as tooltip and accessible description.
         entry = Gtk.ListBoxRow(child=box, tooltip_text=page.summary or None)
         label_accessibly(entry, page.get_title(), page.summary)
         return entry

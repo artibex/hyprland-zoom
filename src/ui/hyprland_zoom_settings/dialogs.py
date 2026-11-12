@@ -8,6 +8,7 @@ from typing import Callable
 
 import gi
 
+# Toolkit versions are pinned before the first import from gi.repository.
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
 gi.require_version("Adw", "1")
@@ -175,17 +176,20 @@ def build_plugin_help_content() -> Gtk.Box:
         The box with explanation, the copyable commands and the path of the local guide.
     """
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+    # The intro tells what to do with the commands below.
     intro = Gtk.Label(
         label="Run these commands in a terminal, one after the other:",
         xalign=0.0, wrap=True,
     )
     box.append(intro)
+    # Each command gets its own line with a copy button.
     commands = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
     for command in PLUGIN_INSTALL_COMMANDS:
         commands.append(_command_row(command))
     # The commands sit in a card so they read as one block.
     commands.add_css_class("card")
     box.append(commands)
+    # The local guide path is for people who prefer reading the full text.
     guide = Gtk.Label(label=f"More details: {PLUGIN_GUIDE_PATH}", xalign=0.0, wrap=True,
                       selectable=True)
     guide.add_css_class("dim-label")
@@ -205,11 +209,16 @@ def show_plugin_help(parent: Gtk.Widget) -> None:
     Returns:
         None.
     """
+    # The header bar gives the dialog a title and a close button.
     view = Adw.ToolbarView()
     view.add_top_bar(Adw.HeaderBar())
-    scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, propagate_natural_height=True)
+    # The commands scroll when the dialog is short (large text).
+    scroller = Gtk.ScrolledWindow(
+        hscrollbar_policy=Gtk.PolicyType.NEVER, propagate_natural_height=True
+    )
     scroller.set_child(build_plugin_help_content())
     view.set_content(scroller)
+    # The natural size keeps the dialog compact; the width suits the commands.
     dialog = Adw.Dialog(title="Install the margin plugin", child=view,
                         content_width=HELP_DIALOG_WIDTH)
     dialog.present(parent)
