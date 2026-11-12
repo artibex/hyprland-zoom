@@ -204,6 +204,21 @@ function M.new(options)
   function host.omarchy_present()
     return host.omarchy
   end
+  -- Fake clock (seconds) and timers: tests advance host.clock and call host.run_timers().
+  host.clock, host.timers = 1000, {}
+  function host.now()
+    return host.clock
+  end
+  function host.after(milliseconds, callback)
+    host.timers[#host.timers + 1] = { milliseconds = milliseconds, callback = callback }
+  end
+  function host.run_timers()
+    local pending = host.timers
+    host.timers = {}
+    for _, timer in ipairs(pending) do
+      timer.callback()
+    end
+  end
   -- fire: run the action of the live bind on a chord (as Hyprland would on a key press).
   function host.fire(keys)
     for index = #host.record.bindings, 1, -1 do

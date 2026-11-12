@@ -58,7 +58,8 @@ end
 
 -- M.read — load the persisted runtime state.
 -- Args:    host platform adapter; directory state directory
--- Returns: table with any of zoom, saved_zoom (numbers), filter_active (boolean), filter (string)
+-- Returns: table with any of zoom, saved_zoom (numbers), filter_active (boolean),
+--          filter and instance (strings; instance = Hyprland session that wrote the file)
 function M.read(host, directory)
   local values = {}
   local text = host.read_file(util.join_path(directory, STATE_FILE_NAME))
@@ -71,6 +72,8 @@ function M.read(host, directory)
       values.filter_active = (value == "on")
     elseif key == "filter" and value:match("^[%a%-]+$") then
       values.filter = value
+    elseif key == "instance" and value:match("^[%w_%.%-]+$") then
+      values.instance = value
     end
   end
   -- Migrate the 0.1 saved zoom when the new file has none.
@@ -93,6 +96,10 @@ function M.write(host, directory, values)
   lines[#lines + 1] = "filter_active=" .. (values.filter_active and "on" or "off")
   if values.filter then
     lines[#lines + 1] = "filter=" .. values.filter
+  end
+  -- The instance tells a later start whether the file belongs to the same compositor session.
+  if values.instance then
+    lines[#lines + 1] = "instance=" .. values.instance
   end
   -- One trailing newline keeps the file a well-formed text file for shell readers.
   local content = table.concat(lines, "\n") .. "\n"

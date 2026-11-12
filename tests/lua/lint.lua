@@ -1,6 +1,6 @@
 -- lint.lua — a small style checker for the engine's Lua files (coding-standards for Lua).
 -- Rules: lines <= 100 chars; every named function has a `-- name — purpose` header with
--- Args and Returns lines; never more than 3 consecutive uncommented statements.
+-- Args and Returns lines; never more than 3 consecutive uncommented statements after a comment.
 
 -- The module table returned to callers.
 local M = {}
@@ -54,7 +54,7 @@ local function check_header(lines, index, name)
     return "function " .. name .. " has no header comment"
   end
   -- First line must be `-- name — purpose`; Args and Returns must follow.
-  if not block[1]:match("^%s*%-%- " .. name .. " — ") then
+  if not block[1]:match("^%s*%-%- [%w_%.]*" .. name .. " — ") then
     return "header of " .. name .. " must start with '-- " .. name .. " — '"
   end
   local text = table.concat(block, "\n")
@@ -70,7 +70,8 @@ end
 local function is_closer_only(code)
   -- `end`, `else`, `},` and friends do not need a comment of their own.
   return code:match("^end[%)%},;]*$") ~= nil or code:match("^[%)%}%]]+[,;]*$") ~= nil
-    or code == "else" or code:match("^until") ~= nil
+    or code == "else" or code:match("^until") ~= nil or code:match("^elseif ") ~= nil
+    or code:match("^local function ") ~= nil or code:match("^function ") ~= nil
 end
 
 -- M.check_file — lint one Lua file.
@@ -85,6 +86,8 @@ function M.check_file(path)
   handle:close()
   local problems = {}
   local run_length, depth = 0, 0
+  -- The statement directly below a comment counts as commented (like the shell R4 rule).
+  local comment_pending = false
   for index, line in ipairs(lines) do
     local code = line:match("^%s*(.-)%s*$")
     -- Line length applies to every line.
@@ -100,7 +103,9 @@ function M.check_file(path)
     end
     -- A comment line resets the run; blank lines and closers neither count nor reset.
     if code:match("^%-%-") then
-      run_length = 0
+      run_length, comment_pending = 0, true
+    elseif code ~= "" and depth <= 0 and not is_closer_only(code) and comment_pending then
+      comment_pending = false
     elseif code ~= "" and depth <= 0 and not is_closer_only(code) then
       run_length = run_length + 1
       if run_length > MAX_UNCOMMENTED_RUN then

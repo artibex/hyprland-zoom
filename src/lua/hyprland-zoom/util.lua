@@ -126,6 +126,16 @@ function M.contains(list, wanted)
   return false
 end
 
+-- append_present — append a value to an array unless it is nil or false.
+-- Args:    list array (modified); value any
+-- Returns: nothing
+function M.append_present(list, value)
+  -- Keeps problem lists free of holes without an if at every call site.
+  if value then
+    list[#list + 1] = value
+  end
+end
+
 -- printable_excerpt — make an untrusted string safe to show in a message.
 -- Args:    text any value; limit integer (default 40)
 -- Returns: at most `limit` characters with everything outside [%w_.:+-] as "?"
