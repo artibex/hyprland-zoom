@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# state.sh — runtime state directory and file (contract C5) plus the flock helper.
+# state.sh — runtime state directory and file (contract C5) plus the state lock.
 # The directory is 0700 under XDG_RUNTIME_DIR; the engine and the legacy path share the format.
-
-# Seconds a zoom action waits for the legacy lock before giving up.
-ZOOMCTL_LOCK_TIMEOUT_SECONDS=5
 
 # zoomctl_state_dir — print the runtime state directory.
 # Args:    none
@@ -39,6 +36,7 @@ zoomctl_state_read() {
   while IFS= read -r line || [ -n "$line" ]; do
     [ "${line%%=*}" = "$1" ] && { printf '%s\n' "${line#*=}"; return 0; }
   done < "$state_file"
+  # No line carried the key.
   return 1
 }
 
@@ -75,14 +73,14 @@ zoomctl_state_write() {
 
 # zoomctl_state_delete — remove one key from the state file.
 # Args:    $1 key
-# Returns: 0 always
+# Returns: 0 key removed or nothing stored; 1 the state file could not be rewritten
 # Globals: none
 zoomctl_state_delete() {
   local state_directory draft_file
   state_directory="$(zoomctl_state_dir)"
   # Nothing stored means nothing to delete.
   [ -r "$state_directory/state" ] || return 0
-  draft_file="$(mktemp "$state_directory/.state.XXXXXX")" || return 0
+  draft_file="$(mktemp "$state_directory/.state.XXXXXX")" || return 1
   # Copy everything except the key, then replace the file atomically.
   zoomctl_state_copy_without "$1" > "$draft_file"
   mv -f -- "$draft_file" "$state_directory/state"
@@ -110,17 +108,7 @@ zoomctl_state_saved_zoom() {
 # Returns: the command's status; 1 when the lock cannot be taken in time
 # Globals: reads ZOOMCTL_LOCK_TIMEOUT_SECONDS
 zoomctl_state_with_lock() {
-  local lock_file
   zoomctl_state_ensure_dir || return 1
   # The lock file lives beside the state so one directory holds everything.
-  lock_file="$(zoomctl_state_dir)/lock"
-  # The subshell owns fd 9; the lock vanishes with it, even when the command fails.
-  (
-    flock --timeout "$ZOOMCTL_LOCK_TIMEOUT_SECONDS" 9 || {
-      zoomctl_error "could not take the zoom lock within ${ZOOMCTL_LOCK_TIMEOUT_SECONDS}s"
-      exit 1
-    }
-    # The caller's command runs while the lock is held.
-    "$@"
-  ) 9>"$lock_file"
+  zoomctl_run_locked "$(zoomctl_state_dir)/lock" "$@"
 }

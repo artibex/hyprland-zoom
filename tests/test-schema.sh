@@ -131,7 +131,7 @@ test_key_and_mods() {
   check_valid mods '' 'SUPER + ALT' 'SUPER + ALT'
   check_valid mods '' 'super+alt' 'SUPER + ALT'
   check_valid mods '' 'alt,super' 'SUPER + ALT'
-  check_valid mods '' 'control shift' 'SHIFT + CTRL'
+  check_valid mods '' 'control shift' 'CTRL + SHIFT'
   check_valid mods '' 'SUPER + SUPER' 'SUPER'
   for input in '' '+' 'SUPER + FOO' 'SUPER; os.exit()' 'SUPER"' 'META'; do
     check_invalid mods '' "$input"

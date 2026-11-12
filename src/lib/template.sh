@@ -124,13 +124,28 @@ zoomctl_legacy_key_binds() {
   done
 }
 
+# zoomctl_legacy_wheel_keys — the wheel directions of "zoom in" and "zoom out" per the schema.
+# Args:    none (schema must be loaded)
+# Returns: 0 always; stdout: "<in-key> <out-key>", for example "mouse_down mouse_up"
+# Globals: reads ZOOMCTL_SCHEMA_DEFAULT
+zoomctl_legacy_wheel_keys() {
+  # down-in (the default, as in 0.1): scrolling down zooms in; up-in reverses the wheel.
+  if [ "${ZOOMCTL_SCHEMA_DEFAULT[BIND_SCROLL_DIRECTION]}" = 'up-in' ]; then
+    printf 'mouse_up mouse_down\n'
+  else
+    printf 'mouse_down mouse_up\n'
+  fi
+}
+
 # zoomctl_legacy_bindings_render — render config/hyprland-bindings.conf from the schema defaults.
 # Args:    none (schema must be loaded)
 # Returns: 0 always; stdout: the file content
 # Globals: reads ZOOMCTL_SCHEMA_DEFAULT
 zoomctl_legacy_bindings_render() {
-  local modifiers
+  local modifiers wheel_in wheel_out
   modifiers="$(zoomctl_hyprlang_modifiers "${ZOOMCTL_SCHEMA_DEFAULT[BIND_MODIFIERS]}")"
+  # Which wheel direction zooms in comes from the schema default.
+  read -r wheel_in wheel_out <<< "$(zoomctl_legacy_wheel_keys)"
   # The header is fixed text; only the scroll delay comes from the schema.
   cat <<EOF
 # hyprland-zoom binds for the legacy hyprlang config (Hyprland without hyprland.lua).
@@ -145,8 +160,8 @@ binds {
 
 EOF
   # Wheel and middle click, then the repeating and one-shot keys.
-  zoomctl_legacy_bind_line bind "$modifiers" mouse_up 'in'
-  zoomctl_legacy_bind_line bind "$modifiers" mouse_down 'out'
+  zoomctl_legacy_bind_line bind "$modifiers" "$wheel_in" 'in'
+  zoomctl_legacy_bind_line bind "$modifiers" "$wheel_out" 'out'
   zoomctl_legacy_bind_line bind "$modifiers" mouse:274 'toggle'
   # The key binds follow the BIND_KEY_* defaults of the schema.
   zoomctl_legacy_key_binds "$modifiers"

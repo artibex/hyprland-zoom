@@ -223,6 +223,15 @@ test_empty_key_value() {
   assert_status 1 "set: empty value invalid for a float"
 }
 
+# config_dir_files — list the config directory, hiding the (intended) lock file.
+# Args:    none
+# Returns: 0 always; stdout: one entry per line
+# Globals: reads ZC_USER_CONFIG
+config_dir_files() {
+  find "$(dirname -- "$ZC_USER_CONFIG")" -mindepth 1 -maxdepth 1 ! -name '.zoom.conf.lock' \
+    -printf '%f\n' | sort
+}
+
 # test_atomic_write — no draft files remain; modes are kept; failures leave the file intact.
 # Args:    none
 # Returns: 0 always
@@ -231,7 +240,7 @@ test_atomic_write() {
   reset_sandbox
   set_fake_mode unreachable
   run_zoomctl set step 0.3
-  assert_eq "zoom.conf" "$(ls -A "$(dirname -- "$ZC_USER_CONFIG")")" "atomic: only zoom.conf in the directory"
+  assert_eq "zoom.conf" "$(config_dir_files)" "atomic: only zoom.conf (and the lock) in the directory"
   assert_eq "644" "$(stat -c '%a' "$ZC_USER_CONFIG")" "atomic: new file is 0644"
   chmod 600 "$ZC_USER_CONFIG"
   run_zoomctl set step 0.4
@@ -241,7 +250,208 @@ test_atomic_write() {
   chmod 755 "$(dirname -- "$ZC_USER_CONFIG")"
   assert_status 1 "atomic: unwritable directory fails"
   assert_file_content "$ZC_USER_CONFIG" 'ZOOM_STEP=0.40' "atomic: failed write leaves the old file"
-  assert_eq "zoom.conf" "$(ls -A "$(dirname -- "$ZC_USER_CONFIG")")" "atomic: no draft left after failure"
+  assert_eq "zoom.conf" "$(config_dir_files)" "atomic: no draft left after failure"
+}
+
+# test_atomic_rename — the file is replaced by a rename; a failing rename leaves it untouched.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_atomic_rename() {
+  local shim_dir="$TEST_SANDBOX/shim"
+  reset_sandbox
+  set_fake_mode unreachable
+  run_zoomctl set step 0.3
+  # A shim mv that always fails: only an implementation that renames survives this unharmed.
+  mkdir -p "$shim_dir"
+  printf '#!/bin/sh\nexit 1\n' > "$shim_dir/mv"
+  chmod +x "$shim_dir/mv"
+  ZC_EXTRA_ENV=("PATH=$shim_dir:$TEST_SANDBOX/bin:/usr/bin:/bin")
+  run_zoomctl set step 0.9
+  ZC_EXTRA_ENV=()
+  assert_status 1 "atomic rename: a failing mv fails the command"
+  assert_file_content "$ZC_USER_CONFIG" 'ZOOM_STEP=0.30' "atomic rename: old file intact (no in-place write)"
+  assert_eq "zoom.conf" "$(config_dir_files)" "atomic rename: the draft is cleaned up"
+  assert_contains "$ZC_ERR" "cannot replace" "atomic rename: the failure is reported"
+}
+
+# test_set_multi — several pairs: all validated first, one write, one reload.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_set_multi() {
+  reset_sandbox
+  set_fake_mode engine
+  run_zoomctl set step 0.2 tracking edge bind-key-in '' min 2 reset 2
+  assert_status 0 "set multi: exit status"
+  assert_file_content "$ZC_USER_CONFIG" \
+    $'ZOOM_STEP=0.20\nZOOM_MIN=2.00\nZOOM_RESET=2.00\nZOOM_TRACKING=edge\nBIND_KEY_IN=' \
+    "set multi: every pair stored in one canonical file (MIN and RESET together)"
+  assert_eq 5 "$(grep -c . <<< "$ZC_OUT")" "set multi: one KEY=VALUE line per pair"
+  assert_eq 1 "$(grep -c 'HyprZoom.reload' <<< "$(fake_calls)" || true)" "set multi: one reload"
+  rm -f "$ZC_USER_CONFIG"
+  run_zoomctl set step 0.2 tracking sideways
+  assert_status 1 "set multi: one bad pair fails the call"
+  assert_no_file "$ZC_USER_CONFIG" "set multi: nothing written when any pair is invalid"
+  run_zoomctl set step 0.2 tracking
+  assert_status 2 "set multi: an odd argument count is a usage error"
+  run_zoomctl set step 0.2 step 0.4
+  assert_file_content "$ZC_USER_CONFIG" 'ZOOM_STEP=0.40' "set multi: a repeated key keeps the last value"
+}
+
+# test_ui_call_shapes — the exact call shapes of the settings window work.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_ui_call_shapes() {
+  reset_sandbox
+  set_fake_mode unreachable
+  run_zoomctl set ZOOM_STEP 0.25
+  assert_eq "ZOOM_STEP=0.25" "$ZC_OUT" "ui shape: canonical key and value"
+  run_zoomctl set BIND_MODIFIERS "SUPER + CTRL"
+  assert_eq "BIND_MODIFIERS=SUPER + CTRL" "$ZC_OUT" "ui shape: modifiers as one argument"
+  run_zoomctl set BIND_MODIFIERS "SHIFT + ALT + CTRL + SUPER"
+  assert_eq "BIND_MODIFIERS=SUPER + CTRL + ALT + SHIFT" "$ZC_OUT" \
+    "ui shape: canonical modifier order is the engine's (SUPER CTRL ALT SHIFT)"
+  run_zoomctl set BIND_KEY_IN ""
+  assert_status 0 "ui shape: an empty argument disables a key bind"
+  run_zoomctl config --porcelain
+  assert_contains "$ZC_OUT" $'BIND_KEY_IN=\n' "ui shape: the disabled bind reads back empty"
+}
+
+# test_parallel_set — parallel sets of different keys all survive; the lock is what saves them.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_parallel_set() {
+  local mutant attempt lost=0
+  reset_sandbox
+  set_fake_mode unreachable
+  parallel_set_run "$ZOOMCTL"
+  assert_eq 8 "$(grep -c . "$ZC_USER_CONFIG")" "parallel set: 8 parallel sets keep all 8 keys"
+  # Mutation: the same code without the lock must lose keys, or the test above proves nothing.
+  mutant="$(make_mutant common.sh 's/^    flock --timeout .*$/    true || {/')" ||
+    fail "parallel set: mutation applied"
+  for attempt in 1 2 3 4 5; do
+    reset_sandbox
+    set_fake_mode unreachable
+    parallel_set_run "$mutant"
+    [ "$(grep -c . "$ZC_USER_CONFIG")" -lt 8 ] && { lost=1; break; }
+  done
+  assert_eq 1 "$lost" "parallel set: without the lock updates are lost (the test bites)"
+}
+
+# parallel_set_run — start 8 `zoomctl set` processes at once, each for a different key.
+# Args:    $1 path of the zoomctl script to run
+# Returns: 0 always (waits for all of them)
+# Globals: reads TEST_ENV
+parallel_set_run() {
+  local pair
+  # Eight different keys (none touching MIN, so the order of arrival cannot matter).
+  for pair in step=0.2 step-mode=add max=8 reset=2 filter-contrast=2 filter-brightness=0.1 \
+    animation-speed=2 edge-margin=0.3; do
+    "${TEST_ENV[@]}" "$1" set "${pair%%=*}" "${pair#*=}" >/dev/null 2>&1 </dev/null &
+  done
+  wait
+}
+
+# test_symlinked_config — a dotfile symlink survives; the real file is edited with its mode.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_symlinked_config() {
+  local dots="$TEST_SANDBOX/dots"
+  reset_sandbox
+  set_fake_mode unreachable
+  mkdir -p "$dots" "$(dirname -- "$ZC_USER_CONFIG")"
+  printf 'ZOOM_STEP=0.30\n' > "$dots/zoom.conf"
+  chmod 600 "$dots/zoom.conf"
+  ln -s "$dots/zoom.conf" "$ZC_USER_CONFIG"
+  run_zoomctl set max 5
+  assert_status 0 "symlink: set works through the link"
+  assert_symlink "$ZC_USER_CONFIG" "$dots/zoom.conf" "symlink: the dotfile link is still a link"
+  assert_file_content "$dots/zoom.conf" $'ZOOM_STEP=0.30\nZOOM_MAX=5.00' "symlink: the target was edited"
+  assert_eq 600 "$(stat -c '%a' "$dots/zoom.conf")" "symlink: the target keeps its mode (not the link's 777)"
+  assert_eq "zoom.conf" "$(ls -A "$dots")" "symlink: no draft in the dotfiles directory"
+  run_zoomctl unset max
+  assert_symlink "$ZC_USER_CONFIG" "$dots/zoom.conf" "symlink: unset keeps the link"
+  chmod 666 "$dots/zoom.conf"
+  run_zoomctl set step 0.4
+  assert_eq 664 "$(stat -c '%a' "$dots/zoom.conf")" "symlink: a world-writable bit is never carried over"
+}
+
+# test_lossy_rewrite_backup — hand-edited content is saved once before the canonical rewrite.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_lossy_rewrite_backup() {
+  local backups
+  reset_sandbox
+  set_fake_mode unreachable
+  write_conf "$ZC_USER_CONFIG" '# my notes\nZOOM_STEP=0.25\nFUTURE_KEY=1\n'
+  run_zoomctl set max 6
+  backups="$(find "$(dirname -- "$ZC_USER_CONFIG")" -name 'zoom.conf.bak-*' | sort)"
+  assert_eq 1 "$(grep -c . <<< "$backups")" "backup: one zoom.conf.bak-<timestamp> before the first rewrite"
+  assert_contains "$(<"$backups")" "# my notes" "backup: holds the original comments"
+  assert_contains "$(<"$backups")" "FUTURE_KEY=1" "backup: holds the unknown key"
+  assert_contains "$ZC_ERR" "backup of" "backup: announced"
+  run_zoomctl set max 7
+  assert_eq 1 "$(find "$(dirname -- "$ZC_USER_CONFIG")" -name 'zoom.conf.bak-*' | grep -c .)" \
+    "backup: the now canonical file is not backed up again"
+  reset_sandbox
+  run_zoomctl set max 6
+  assert_eq 0 "$(find "$(dirname -- "$ZC_USER_CONFIG")" -name 'zoom.conf.bak-*' | grep -c .)" \
+    "backup: a fresh canonical file needs none"
+  write_conf "$ZC_USER_CONFIG" '# keep me\nZOOM_STEP=0.25\n'
+  run_zoomctl reset-config
+  assert_eq 1 "$(find "$(dirname -- "$ZC_USER_CONFIG")" -name 'zoom.conf.bak-*' | grep -c .)" \
+    "backup: reset-config saves a hand-edited file too"
+}
+
+# test_write_failures_reported — a failed reset or write is an error, never a success message.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_write_failures_reported() {
+  reset_sandbox
+  set_fake_mode unreachable
+  run_zoomctl set step 0.3
+  chmod 555 "$(dirname -- "$ZC_USER_CONFIG")"
+  run_zoomctl reset-config
+  chmod 755 "$(dirname -- "$ZC_USER_CONFIG")"
+  assert_status 1 "reset-config: unremovable file exits 1"
+  assert_not_contains "$ZC_OUT" "removed" "reset-config: no success message after a failure"
+  assert_file_exists "$ZC_USER_CONFIG" "reset-config: the file is still there"
+  chmod 555 "$(dirname -- "$ZC_USER_CONFIG")"
+  run_zoomctl unset step
+  chmod 755 "$(dirname -- "$ZC_USER_CONFIG")"
+  assert_status 1 "unset: unwritable directory exits 1"
+}
+
+# test_locale_independence — validators are byte-wise: non-ASCII input is rejected cleanly.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_locale_independence() {
+  if ! locale -a 2>/dev/null | grep -qi '^en_US\.utf-\?8$'; then
+    pass "locale: en_US.UTF-8 not installed here (check skipped)"
+    return 0
+  fi
+  reset_sandbox
+  set_fake_mode unreachable
+  ZC_EXTRA_ENV=(LC_ALL=en_US.UTF-8)
+  run_zoomctl set bind-key-in 'É'
+  assert_status 1 "locale: a non-ASCII key name is rejected"
+  run_zoomctl set step '٣'
+  assert_status 1 "locale: an Arabic-Indic digit is not a number"
+  assert_not_contains "$ZC_ERR" "invalid integer constant" "locale: no bash arithmetic error leaks out"
+  run_zoomctl in '٣'
+  assert_status 2 "locale: a non-ASCII notch count is a usage error"
+  assert_not_contains "$ZC_ERR" "invalid integer constant" "locale: notch count error is ours"
+  run_zoomctl set bind-modifiers 'Ｓuper'
+  assert_status 1 "locale: a fullwidth letter is not a modifier"
+  ZC_EXTRA_ENV=()
+  assert_no_file "$ZC_USER_CONFIG" "locale: nothing non-ASCII reached the config file"
 }
 
 # test_porcelain — config --porcelain lists exactly the schema keys, in order, as KEY=VALUE.
@@ -306,6 +516,14 @@ test_set_errors
 test_cross_field_sequence
 test_empty_key_value
 test_atomic_write
+test_atomic_rename
+test_set_multi
+test_ui_call_shapes
+test_parallel_set
+test_symlinked_config
+test_lossy_rewrite_backup
+test_write_failures_reported
+test_locale_independence
 test_porcelain
 test_reload_after_set
 test_finish

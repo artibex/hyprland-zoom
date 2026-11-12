@@ -151,7 +151,7 @@ test_filter_unsupported() {
 # Returns: 0 always
 # Globals: none
 test_flock_race() {
-  local mutant_root="$TEST_SANDBOX/mutant" mode
+  local mutant mode
   # The real CLI, in both fallback situations: every notch must count.
   for mode in hyprlang lua-no-engine; do
     reset_sandbox
@@ -159,26 +159,54 @@ test_flock_race() {
     use_add_mode 0.10
     assert_eq "2.00" "$(parallel_in "$ZOOMCTL" 10)" "race ($mode): 10 concurrent in = 10 steps"
   done
-  # Mutation: a copy of the code base whose lock line is a no-op (schema copied alongside).
-  mkdir -p "$mutant_root/src" "$mutant_root/config"
-  cp -r "$TEST_ROOT/src/." "$mutant_root/src/"
-  cp "$SCHEMA_FILE" "$mutant_root/config/"
+  # Mutation: a copy of the code base whose lock line is a no-op.
   # shellcheck disable=SC2016  # the pattern must contain a literal dollar sign
-  sed -i 's/flock --timeout "\$ZOOMCTL_LOCK_TIMEOUT_SECONDS" 9 || {/true || {/' \
-    "$mutant_root/src/lib/state.sh"
-  if cmp -s "$mutant_root/src/lib/state.sh" "$TEST_ROOT/src/lib/state.sh"; then
-    fail "race mutation applied"
-  else
+  if mutant="$(make_mutant common.sh 's/^    flock --timeout .*$/    true || {/')"; then
     pass "race mutation applied"
+  else
+    fail "race mutation applied"
   fi
   reset_sandbox
   set_fake_mode hyprlang
   use_add_mode 0.10
-  if [ "$(parallel_in "$mutant_root/src/zoomctl" 10)" != "2.00" ]; then
+  if [ "$(parallel_in "$mutant" 10)" != "2.00" ]; then
     pass "race: without flock steps are lost (the test proves the lock matters)"
   else
     fail "race: without flock steps are lost (the test proves the lock matters)"
   fi
+}
+
+# test_swallowed_notch_guard — a rounding result that would not move the zoom still moves it.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_swallowed_notch_guard() {
+  # 0.10 x 1.01 rounds back to 0.10: without the guard the notch would be swallowed.
+  run_lib_function zoomctl_legacy_next_centi 10 1 multiply in 1
+  assert_eq 11 "$ZC_OUT" "guard: zooming in always gains at least one hundredth"
+  run_lib_function zoomctl_legacy_next_centi 11 1 multiply out 1
+  assert_eq 10 "$ZC_OUT" "guard: zooming out always loses at least one hundredth"
+  # Three notches at the smallest step advance one hundredth each.
+  run_lib_function zoomctl_legacy_next_centi 100 1 multiply in 3
+  assert_eq 103 "$ZC_OUT" "guard: the smallest step still advances every notch"
+}
+
+# test_flock_missing — without flock the commands say so instead of timing out.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_flock_missing() {
+  local empty_bin="$TEST_SANDBOX/emptybin"
+  mkdir -p "$empty_bin"
+  # A PATH without any tool: `command -v flock` finds nothing, exactly like a missing util-linux.
+  ZC_EXTRA_ENV=("PATH=$empty_bin")
+  run_lib_function zoomctl_run_locked "$TEST_SANDBOX/x.lock" true
+  assert_status 1 "flock missing: the locked call fails"
+  assert_contains "$ZC_ERR" "flock (util-linux) is missing" "flock missing: clear message"
+  run_lib_function zoomctl_doctor_tools
+  ZC_EXTRA_ENV=()
+  assert_status 1 "flock missing: doctor counts it as a failure"
+  assert_contains "$ZC_OUT" "[FAIL] flock (util-linux) is missing" "flock missing: doctor says so"
 }
 
 test_option_strings
@@ -187,4 +215,6 @@ test_toggle_reset_zoom
 test_state_and_01_compat
 test_filter_unsupported
 test_flock_race
+test_swallowed_notch_guard
+test_flock_missing
 test_finish

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# fake-hyprland — stand-in for the Hyprland binary in the zoomctl tests (`Hyprland --version`).
+#
+# Steered by $FAKE_HYPRCTL_DIR/binary_version: its content is the version to print; without the
+# file the "binary" behaves like an uninstalled one (exit 127), so tests can model both.
+# It never starts a compositor and never touches the real Hyprland.
+
+set -u
+
+# main — print the version line like the real binary or fail like a missing one.
+# Args:    the command line arguments (only --version is emulated)
+# Returns: 0 version printed; 127 no version configured; 2 any other argument
+# Globals: reads FAKE_HYPRCTL_DIR
+main() {
+  # Without the state directory this could be mistaken for a real compositor binary.
+  [ -n "${FAKE_HYPRCTL_DIR:-}" ] || { echo 'fake-hyprland: FAKE_HYPRCTL_DIR unset' >&2; exit 99; }
+  # Only --version exists in the fake; starting a compositor is never emulated.
+  [ "${1:-}" = '--version' ] || { echo 'fake-hyprland: only --version is emulated' >&2; exit 2; }
+  # A missing file models an uninstalled binary.
+  [ -r "$FAKE_HYPRCTL_DIR/binary_version" ] || exit 127
+  printf 'Hyprland %s built from branch main at fake (fake commit).\n' \
+    "$(< "$FAKE_HYPRCTL_DIR/binary_version")"
+}
+
+main "$@"

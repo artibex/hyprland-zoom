@@ -97,6 +97,7 @@ zoomctl_schema_load() {
   # Read line by line so a malformed line reports its number.
   while IFS= read -r line || [ -n "$line" ]; do
     line_number=$((line_number + 1))
+    # Every line is stored or rejected together with its number.
     zoomctl_schema_parse_line "$line_number" "$line" || return 1
   done < "$schema_file"
   # Short aliases must never shadow a canonical spelling, so legacy ones go last.
@@ -140,6 +141,6 @@ zoomctl_schema_allowed_text() {
     # Enum members are listed in schema order.
     enum) printf 'one of: %s\n' "${constraint//,/, }" ;;
     key) printf 'a Hyprland key name such as I, F5 or mouse:274; empty disables the bind\n' ;;
-    mods) printf 'modifiers joined with " + " from: SUPER, SHIFT, CTRL, ALT\n' ;;
+    mods) printf 'modifiers joined with " + " from: SUPER, CTRL, ALT, SHIFT\n' ;;
   esac
 }

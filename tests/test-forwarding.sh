@@ -203,8 +203,10 @@ test_help_and_exit_codes() {
   assert_status 2 "unknown command"
   assert_contains "$ZC_ERR" "unknown command 'frobnicate'" "unknown command message"
   run_zoomctl --version
-  assert_contains "$ZC_OUT" "zoomctl 0.2" "version"
+  assert_eq "zoomctl $(<"$TEST_ROOT/VERSION")" "$ZC_OUT" "version comes from the VERSION file"
   assert_not_contains "$(grep -c . <<< "$ZC_OUT")" "x" "version is one line"
+  run_zoomctl ''
+  assert_status 2 "an empty command is a usage error, not help"
   assert_eq 0 "$(grep -ciE 'wofi|zenity|rofi' "$TEST_ROOT/src/zoomctl" "$TEST_ROOT"/src/lib/*.sh | awk -F: '{s+=$2} END {print s+0}')" \
     "old wofi/zenity/rofi menu code is gone"
 }
@@ -223,6 +225,54 @@ test_ui_launcher() {
   run_zoomctl configure --page filter
   assert_eq "settings-app --page filter" "$ZC_OUT" "ui: configure execs the app with its arguments"
   rm -f "$TEST_SANDBOX/bin/hyprland-zoom-settings"
+}
+
+# test_ui_locale — the settings window gets the caller's locale back, not zoomctl's byte-wise one.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_ui_locale() {
+  reset_sandbox
+  # shellcheck disable=SC2016  # the stub expands the variable itself, when it runs
+  printf '#!/bin/sh\necho "locale=${LC_ALL-unset}"\n' > "$TEST_SANDBOX/bin/hyprland-zoom-settings"
+  chmod +x "$TEST_SANDBOX/bin/hyprland-zoom-settings"
+  ZC_EXTRA_ENV=(LC_ALL=en_US.UTF-8)
+  run_zoomctl ui
+  assert_eq "locale=en_US.UTF-8" "$ZC_OUT" "ui: the caller's LC_ALL is restored before exec"
+  # Without LC_ALL in the caller's environment, none may appear in the app's.
+  ZC_OUT="$("${TEST_ENV[@]}" env -u LC_ALL "$ZOOMCTL" ui 2>&1 </dev/null)"
+  assert_eq "locale=unset" "$ZC_OUT" "ui: an unset caller locale stays unset (not zoomctl's C)"
+  ZC_EXTRA_ENV=()
+  rm -f "$TEST_SANDBOX/bin/hyprland-zoom-settings"
+}
+
+# test_symlinked_launcher — a launcher symlink finds the libraries of the script it points to.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_symlinked_launcher() {
+  local launcher="$TEST_SANDBOX/bin/zoomctl-launcher"
+  reset_sandbox
+  ln -sf "$ZOOMCTL" "$launcher"
+  ZC_OUT="$("${TEST_ENV[@]}" "$launcher" version 2>&1 </dev/null)"
+  assert_eq "zoomctl $(<"$TEST_ROOT/VERSION")" "$ZC_OUT" "launcher: symlink resolved (libs and VERSION found)"
+  rm -f "$launcher"
+}
+
+# test_uninstall — the package is removed with `pacman -Rs`, which keeps a modified /etc file as .pacsave.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_uninstall() {
+  reset_sandbox
+  printf '#!/bin/sh\n"$@"\n' > "$TEST_SANDBOX/bin/sudo"
+  printf '#!/bin/sh\necho "pacman $*"\n' > "$TEST_SANDBOX/bin/pacman"
+  chmod +x "$TEST_SANDBOX/bin/sudo" "$TEST_SANDBOX/bin/pacman"
+  run_zoomctl uninstall --yes
+  assert_eq "pacman -Rs hyprland-zoom" "$ZC_OUT" "uninstall: -Rs, never -Rns"
+  run_zoomctl uninstall
+  assert_contains "$ZC_OUT" "cancelled" "uninstall: no terminal and no --yes cancels"
+  rm -f "$TEST_SANDBOX/bin/sudo" "$TEST_SANDBOX/bin/pacman"
 }
 
 # test_doctor — checks per compositor state, binds, scroll delay, plugin and include.
@@ -285,6 +335,33 @@ test_doctor_problems() {
   assert_contains "$ZC_OUT" "invalid value 'banana' for ZOOM_STEP" "doctor: config warning names the problem"
 }
 
+# test_doctor_extras — engine warnings, annotated includes, a missing schema, settings app lookup.
+# Args:    none
+# Returns: 0 always
+# Globals: none
+test_doctor_extras() {
+  local engine_path="$TEST_SANDBOX/share/hyprland-zoom.lua" no_schema="$TEST_SANDBOX/noschema"
+  reset_sandbox
+  mkdir -p "$TEST_SANDBOX/home/.config/hypr"
+  printf 'dofile("%s") -- zoom\n' "$engine_path" > "$TEST_SANDBOX/home/.config/hypr/hyprland.lua"
+  set_fake_mode engine
+  run_zoomctl doctor
+  assert_contains "$ZC_OUT" "[ok  ] engine include present" "doctor: an annotated include line is recognised"
+  assert_contains "$ZC_OUT" "[ok  ] engine reports no configuration warnings" "doctor: engine warnings: none"
+  printf 'ZOOM_STEP=banana: ignored\nFOO unknown\n' > "$FAKE_DIR/warnings"
+  run_zoomctl doctor
+  assert_contains "$ZC_OUT" "[warn] engine: ZOOM_STEP=banana: ignored" "doctor: HyprZoom.warnings() line shown"
+  assert_contains "$ZC_OUT" "[warn] engine: FOO unknown" "doctor: every warning line shown"
+  assert_contains "$(fake_calls)" "repl return HyprZoom.warnings()" "doctor: asks the engine"
+  # An installation without its schema must say so, not fail silently.
+  mkdir -p "$no_schema"
+  cp -r "$TEST_ROOT/src" "$no_schema/src"
+  ZC_OUT="$("${TEST_ENV[@]}" "$no_schema/src/zoomctl" doctor 2>&1 </dev/null)"
+  assert_contains "$ZC_OUT" "settings.schema not found" "doctor: a missing schema is reported"
+  run_zoomctl doctor
+  assert_not_contains "$ZC_OUT" "settings app found" "doctor: the settings override is authoritative (no stray checkout app)"
+}
+
 test_zoom_forwarding
 test_injection_rejected
 test_engine_failure_paths
@@ -293,5 +370,9 @@ test_tracking_command
 test_status
 test_help_and_exit_codes
 test_ui_launcher
+test_ui_locale
+test_symlinked_launcher
+test_uninstall
 test_doctor
+test_doctor_extras
 test_finish
