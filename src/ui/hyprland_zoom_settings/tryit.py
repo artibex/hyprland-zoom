@@ -6,7 +6,7 @@ immediately (``shutdown``).
 """
 
 # typing documents the optional previous zoom.
-from typing import Optional
+from typing import Callable, List, Optional
 
 import gi
 
@@ -64,6 +64,9 @@ class TryItController(GObject.Object):
         self.seconds_left = 0
         self._previous_zoom: Optional[float] = None
         self._timer_id = 0
+        # Commands run strictly one after another so a quick Stop cannot overtake the start.
+        self._steps: List[Callable[[Callable[[], None]], None]] = []
+        self._step_running = False
 
     @property
     def busy(self) -> bool:
@@ -89,8 +92,7 @@ class TryItController(GObject.Object):
         previous = self.settings.status.zoom
         self._previous_zoom = FALLBACK_ZOOM if previous is None else previous
         self._begin(MODE_ZOOM, self.zoom_seconds)
-        target = format_float(ZOOM_TEST_FACTOR)
-        self.settings.run_action(["zoom", target], self._on_start_result)
+        self._enqueue_command(["zoom", format_float(ZOOM_TEST_FACTOR)], self._on_start_result)
 
     def start_filter_preview(self) -> None:
         """Preview the configured filter live, without saving anything.
@@ -105,7 +107,7 @@ class TryItController(GObject.Object):
             f"{FILTER_KEY}={self.settings.values[FILTER_KEY]}",
             f"{FILTER_ACTIVE_KEY}=on",
         ]
-        self.settings.run_action(["preview", *overrides], self._on_start_result)
+        self._enqueue_command(["preview", *overrides], self._on_start_result)
 
     def _begin(self, mode: str, seconds: int) -> None:
         """Enter a test mode and start the countdown.
@@ -183,20 +185,10 @@ class TryItController(GObject.Object):
         self._cancel_timer()
         self.mode = MODE_IDLE
         self.emit("changed")
-        # Preview ends only after the setting was saved; a failed save simply reverts it.
-        self.settings.set_value(FILTER_ACTIVE_KEY, "on", self._on_keep_saved)
-
-    def _on_keep_saved(self, saved: bool) -> None:
-        """Drop the preview overrides once the filter setting is stored (or refused).
-
-        Args:
-            saved: Whether ``zoomctl set`` accepted the setting.
-
-        Returns:
-            None.
-        """
-        # The saved config now carries the filter, so ending the preview changes nothing visible.
-        self.settings.run_action(["preview", "--end"])
+        # The preview ends only after the setting was saved; a refused save simply reverts it.
+        self._enqueue(lambda done: self.settings.set_value(
+            FILTER_ACTIVE_KEY, "on", lambda _saved: done()))
+        self._enqueue_command(["preview", "--end"])
 
     def _end(self, restore: bool) -> None:
         """Leave the current test mode and optionally restore the screen.
@@ -212,10 +204,83 @@ class TryItController(GObject.Object):
         self.mode = MODE_IDLE
         self.seconds_left = 0
         if restore and mode == MODE_ZOOM:
-            self.settings.run_action(["zoom", format_float(self._previous_zoom or FALLBACK_ZOOM)])
+            self._enqueue_command(["zoom", format_float(self._previous_zoom or FALLBACK_ZOOM)])
         elif restore and mode == MODE_FILTER:
-            self.settings.run_action(["preview", "--end"])
+            self._enqueue_command(["preview", "--end"])
         self.emit("changed")
+
+    # ----- ordered command execution ------------------------------------------------------
+
+    def _enqueue(self, step: Callable[[Callable[[], None]], None]) -> None:
+        """Queue a step; it starts when all earlier steps have finished.
+
+        Args:
+            step: Callable that receives a ``done`` callback and must call it exactly once.
+
+        Returns:
+            None.
+        """
+        self._steps.append(step)
+        self._advance()
+
+    def _enqueue_command(self, arguments: List[str], on_result=None) -> None:
+        """Queue one zoomctl command.
+
+        Args:
+            arguments: zoomctl arguments.
+            on_result: Optional callback with the CommandResult.
+
+        Returns:
+            None.
+        """
+        def step(done: Callable[[], None]) -> None:
+            """Run the command and signal completion.
+
+            Args:
+                done: Callback that releases the queue.
+
+            Returns:
+                None.
+            """
+            def finished(result) -> None:
+                """Hand the result on, then release the queue.
+
+                Args:
+                    result: CommandResult of the command.
+
+                Returns:
+                    None.
+                """
+                # The queue advances even when the callback raises, so it can never stall.
+                try:
+                    if on_result:
+                        on_result(result)
+                finally:
+                    done()
+
+            self.settings.run_action(arguments, finished)
+
+        self._enqueue(step)
+
+    def _advance(self) -> None:
+        """Start the next queued step unless one is running.
+
+        Returns:
+            None.
+        """
+        if self._step_running or not self._steps:
+            return
+        self._step_running = True
+        self._steps.pop(0)(self._step_finished)
+
+    def _step_finished(self) -> None:
+        """Release the queue after a step and continue with the next one.
+
+        Returns:
+            None.
+        """
+        self._step_running = False
+        self._advance()
 
     def _cancel_timer(self) -> None:
         """Stop the countdown timer if it is running.

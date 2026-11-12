@@ -31,8 +31,9 @@ def base_keysym_name(display: Optional[Gdk.Display], keycode: int, keyval: int) 
     if display is not None:
         found, layouts, keyvals = display.map_keycode(keycode)
         for layout, base_keyval in zip(layouts if found else [], keyvals if found else []):
-            # Group 0 / level 0 is the unshifted symbol of the first layout.
-            if layout.group == 0 and layout.level == 0:
+            # Group 0 / level 0 is the unshifted symbol of the first layout; some backends
+            # (Broadway) report keyval 0 for every code, which means "no information".
+            if layout.group == 0 and layout.level == 0 and base_keyval:
                 return Gdk.keyval_name(base_keyval)
     return Gdk.keyval_name(keyval)
 

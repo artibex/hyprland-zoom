@@ -19,7 +19,7 @@ from gi.repository import Adw, GLib, Gtk  # noqa: E402 - gi.require_version must
 
 from .constants import CHOICE_LIST_MAX_OPTIONS, DEBOUNCE_MILLISECONDS, SLIDER_MAX_SPAN  # noqa: E402
 from .key_capture import KeyCaptureDialog  # noqa: E402
-from .keys import accelerator_text, find_key_conflict  # noqa: E402
+from .keys import MODIFIER_CAP_NAMES, chord_parts, find_key_conflict  # noqa: E402
 from .presentation import CHOICE_LIST_KEYS, option_description, option_label  # noqa: E402
 from .schema import (  # noqa: E402
     KIND_BOOL, KIND_ENUM, KIND_FLOAT, KIND_INT, KIND_KEY, KIND_MODS, SettingsSchema, SettingSpec,
@@ -29,8 +29,8 @@ from .values import (  # noqa: E402
     parse_modifiers,
 )
 
-# Display names of the modifier toggles (the stored names are the upper-case MODIFIER_ORDER).
-MODIFIER_DISPLAY_NAMES = {"SUPER": "Super", "CTRL": "Ctrl", "ALT": "Alt", "SHIFT": "Shift"}
+# Style class of one drawn key (defined in styles.py, drawn from theme colours).
+KEYCAP_CSS_CLASS = "hzoom-keycap"
 
 
 @dataclass
@@ -118,6 +118,24 @@ class Debouncer:
         self._timer_id = 0
         self._action()
         return GLib.SOURCE_REMOVE
+
+
+def children_of(widget: Gtk.Widget) -> List[Gtk.Widget]:
+    """List the direct children of a widget.
+
+    Args:
+        widget: Container to inspect.
+
+    Returns:
+        The children in display order.
+    """
+    children = []
+    child = widget.get_first_child()
+    # GTK4 has no generic child iterator; siblings are walked one by one.
+    while child is not None:
+        children.append(child)
+        child = child.get_next_sibling()
+    return children
 
 
 def label_accessibly(widget: Gtk.Widget, label: str, description: str) -> None:
@@ -492,7 +510,7 @@ class ChoiceListRow(SettingRow):
         group = Adw.PreferencesGroup(title=spec.label, description=spec.help)
         super().__init__(spec, context, group)
         self.option_rows: Dict[str, Adw.ActionRow] = {}
-        self._buttons: Dict[str, Gtk.CheckButton] = {}
+        self.buttons: Dict[str, Gtk.CheckButton] = {}
         first_button: Optional[Gtk.CheckButton] = None
         for option in spec.choices:
             button = Gtk.CheckButton(valign=Gtk.Align.CENTER)
@@ -503,7 +521,7 @@ class ChoiceListRow(SettingRow):
                 button.set_group(first_button)
             row = self._build_option_row(option, button)
             self.option_rows[option] = row
-            self._buttons[option] = button
+            self.buttons[option] = button
             group.add(row)
 
     def _build_option_row(self, option: str, button: Gtk.CheckButton) -> Adw.ActionRow:
@@ -547,8 +565,8 @@ class ChoiceListRow(SettingRow):
         Returns:
             None.
         """
-        if text in self._buttons:
-            self._buttons[text].set_active(True)
+        if text in self.buttons:
+            self.buttons[text].set_active(True)
 
     def _on_toggled(self, button: Gtk.CheckButton, option: str) -> None:
         """Report the newly selected option.
@@ -584,8 +602,8 @@ class ModifiersSettingRow(SettingRow):
         box.add_css_class("linked")
         self.toggles: Dict[str, Gtk.ToggleButton] = {}
         for name in MODIFIER_ORDER:
-            toggle = Gtk.ToggleButton(label=MODIFIER_DISPLAY_NAMES[name])
-            label_accessibly(toggle, f"{MODIFIER_DISPLAY_NAMES[name]} key", spec.help)
+            toggle = Gtk.ToggleButton(label=MODIFIER_CAP_NAMES[name])
+            label_accessibly(toggle, f"{MODIFIER_CAP_NAMES[name]} key", spec.help)
             toggle.connect("toggled", self._on_toggled)
             self.toggles[name] = toggle
             box.append(toggle)
@@ -648,7 +666,7 @@ class KeySettingRow(SettingRow):
         """
         row = Adw.ActionRow(title=spec.label, subtitle=spec.help)
         super().__init__(spec, context, row)
-        self.shortcut_label = Gtk.ShortcutLabel(valign=Gtk.Align.CENTER)
+        self.keycaps = Gtk.Box(spacing=4, valign=Gtk.Align.CENTER)
         self.disabled_label = Gtk.Label(label="Disabled", valign=Gtk.Align.CENTER)
         self.disabled_label.add_css_class("dim-label")
         self.change_button = Gtk.Button(label="Change…", valign=Gtk.Align.CENTER)
@@ -661,7 +679,7 @@ class KeySettingRow(SettingRow):
         label_accessibly(self.disable_button, f"Disable {spec.label}", "Removes the shortcut")
         self.disable_button.add_css_class("flat")
         self.disable_button.connect("clicked", lambda _button: self.emit_change(""))
-        for part in (self.shortcut_label, self.disabled_label, self.change_button,
+        for part in (self.keycaps, self.disabled_label, self.change_button,
                      self.disable_button):
             row.add_suffix(part)
 
@@ -675,12 +693,38 @@ class KeySettingRow(SettingRow):
         Returns:
             None.
         """
-        accelerator = accelerator_text(values.get("BIND_MODIFIERS", ""), text)
-        self.shortcut_label.set_accelerator(accelerator)
-        # A disabled bind shows a word instead of an empty keycap.
-        self.shortcut_label.set_visible(bool(accelerator))
-        self.disabled_label.set_visible(not accelerator)
+        parts = chord_parts(values.get("BIND_MODIFIERS", ""), text)
+        self._redraw_keycaps(parts)
+        # A disabled bind shows a word instead of an empty strip of keys.
+        self.keycaps.set_visible(bool(parts))
+        self.disabled_label.set_visible(not parts)
         self.disable_button.set_sensitive(bool(text))
+
+    def _redraw_keycaps(self, parts: List[str]) -> None:
+        """Replace the drawn keys.
+
+        Args:
+            parts: Texts of the keycaps, modifiers first.
+
+        Returns:
+            None.
+        """
+        # Old caps are removed before the new ones are appended.
+        for old_cap in children_of(self.keycaps):
+            self.keycaps.remove(old_cap)
+        for part in parts:
+            cap = Gtk.Label(label=part)
+            cap.add_css_class(KEYCAP_CSS_CLASS)
+            self.keycaps.append(cap)
+        label_accessibly(self.keycaps, " + ".join(parts) or "Disabled", self.spec.help)
+
+    def keycap_texts(self) -> List[str]:
+        """Read back the drawn keys (used by tests and assistive checks).
+
+        Returns:
+            The texts of the current keycaps.
+        """
+        return [cap.get_label() for cap in children_of(self.keycaps)]
 
     def _on_change_clicked(self, _button) -> None:
         """Open the key capture dialog.

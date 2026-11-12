@@ -72,13 +72,17 @@ class SettingsWindow(Adw.ApplicationWindow):
         Returns:
             None.
         """
+        # Lambdas look the targets up at call time, so replacing add_toast (tests) still works.
         context = RowContext(
-            schema, lambda: self.controller.values, self.controller.set_value, self.add_toast
+            schema, lambda: self.controller.values, self.controller.set_value,
+            lambda message: self.add_toast(message),
         )
         self.pages = build_pages(schema, context)
         self.stack = Adw.ViewStack(vexpand=True)
         for page in self.pages:
-            self.stack.add_titled_with_icon(page, page.group_id, page.get_title(), page.get_icon_name())
+            self.stack.add_titled_with_icon(
+                page, page.group_id, page.get_title(), page.get_icon_name()
+            )
         self.banner = Adw.Banner(revealed=False)
         self.banner.connect("button-clicked", self._on_banner_clicked)
         self.header = self._build_header()
@@ -87,7 +91,8 @@ class SettingsWindow(Adw.ApplicationWindow):
         view.add_top_bar(self.header)
         view.add_top_bar(self.banner)
         view.set_content(self.stack)
-        view.add_bottom_bar(TryItBar(self.controller, self.session))
+        self.tryit_bar = TryItBar(self.controller, self.session)
+        view.add_bottom_bar(self.tryit_bar)
         view.add_bottom_bar(self.switcher_bar)
         self.toast_overlay = Adw.ToastOverlay(child=view)
         self.set_content(self.toast_overlay)

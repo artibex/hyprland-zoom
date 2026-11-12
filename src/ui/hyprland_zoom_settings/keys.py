@@ -5,7 +5,7 @@ Pure Python on purpose: the GTK key controller hands over a keysym *name* (what
 """
 
 # typing documents the optional results.
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from .schema import KIND_KEY, SettingsSchema, SettingSpec
 from .values import parse_modifiers
@@ -20,10 +20,8 @@ MODIFIER_KEYSYM_NAMES = frozenset({
 _KEYSYM_RENAMES = {"ISO_Left_Tab": "TAB"}
 # The keysym that cancels a capture (it therefore cannot be bound itself).
 CANCEL_KEYSYM_NAME = "Escape"
-# Hyprland modifier names mapped to GTK accelerator modifier syntax (display only).
-_ACCELERATOR_MODIFIERS = {
-    "SUPER": "<Super>", "CTRL": "<Control>", "ALT": "<Alt>", "SHIFT": "<Shift>",
-}
+# Display names of the modifiers on a drawn keycap strip.
+MODIFIER_CAP_NAMES = {"SUPER": "Super", "CTRL": "Ctrl", "ALT": "Alt", "SHIFT": "Shift"}
 
 
 def hyprland_key_name(keysym_name: Optional[str]) -> Optional[str]:
@@ -45,23 +43,34 @@ def hyprland_key_name(keysym_name: Optional[str]) -> Optional[str]:
     return _KEYSYM_RENAMES.get(keysym_name, keysym_name).upper()
 
 
-def accelerator_text(modifiers: str, key_name: str) -> str:
-    """Build a GTK accelerator string to draw a shortcut with ``Gtk.ShortcutLabel``.
+def key_cap_label(key_name: str) -> str:
+    """Make a Hyprland key name readable on a keycap.
+
+    Args:
+        key_name: Upper-case Hyprland key name such as ``I`` or ``RETURN``.
+
+    Returns:
+        Single characters stay upper case, longer names are capitalised (``Return``).
+    """
+    # One-character keys look best as typed on a keyboard; names read better in title case.
+    return key_name if len(key_name) == 1 else key_name.capitalize()
+
+
+def chord_parts(modifiers: str, key_name: str) -> List[str]:
+    """Split a shortcut into the texts of its keycaps.
 
     Args:
         modifiers: Stored modifier text, e.g. ``SUPER + ALT``.
         key_name: Hyprland key name; empty means the bind is disabled.
 
     Returns:
-        For example ``<Super><Alt>i``; an empty string for a disabled bind.
+        For example ``["Super", "Alt", "I"]``; an empty list for a disabled bind.
     """
     # A disabled bind has nothing to draw.
     if not key_name:
-        return ""
+        return []
     names = parse_modifiers(modifiers) or []
-    prefix = "".join(_ACCELERATOR_MODIFIERS[name] for name in names)
-    # GTK expects keysym names in their GDK spelling; lower case matches letters and digits.
-    return f"{prefix}{key_name.lower()}"
+    return [MODIFIER_CAP_NAMES[name] for name in names] + [key_cap_label(key_name)]
 
 
 def find_key_conflict(

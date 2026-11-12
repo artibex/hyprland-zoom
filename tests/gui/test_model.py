@@ -167,11 +167,12 @@ class KeyTests(unittest.TestCase):
         for keysym in ("Shift_L", "Super_R", "Caps_Lock", "Escape", "", None):
             self.assertIsNone(keys.hyprland_key_name(keysym), keysym)
 
-    def test_accelerator_text_for_display(self):
-        """The shortcut label gets a GTK accelerator; disabled binds get nothing."""
-        self.assertEqual(keys.accelerator_text("SUPER + ALT", "I"), "<Super><Alt>i")
-        self.assertEqual(keys.accelerator_text("CTRL + SHIFT", "F5"), "<Control><Shift>f5")
-        self.assertEqual(keys.accelerator_text("SUPER", ""), "")
+    def test_chord_parts_for_the_keycap_strip(self):
+        """The strip shows modifiers then the key; disabled binds show nothing."""
+        self.assertEqual(keys.chord_parts("SUPER + ALT", "I"), ["Super", "Alt", "I"])
+        self.assertEqual(keys.chord_parts("CTRL + SHIFT", "RETURN"), ["Ctrl", "Shift", "Return"])
+        self.assertEqual(keys.chord_parts("SUPER", ""), [])
+        self.assertEqual(keys.chord_parts("bogus", "F5"), ["F5"])
 
     def test_conflict_detection_ignores_self_and_empty(self):
         """Another key-typed setting with the same key is reported."""

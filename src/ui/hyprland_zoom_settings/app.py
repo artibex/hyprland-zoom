@@ -16,6 +16,7 @@ from .constants import APP_ID, APP_NAME  # noqa: E402
 from .controller import SettingsController  # noqa: E402
 from .paths import resolve_icon_search_dir, resolve_schema_path, resolve_zoomctl_binary  # noqa: E402
 from .schema import SchemaError, load_schema  # noqa: E402
+from .styles import install_styles  # noqa: E402
 from .tryit import TryItController  # noqa: E402
 from .window import SettingsWindow  # noqa: E402
 
@@ -63,17 +64,18 @@ class ZoomSettingsApplication(Adw.Application):
         self.window: Optional[Adw.ApplicationWindow] = None
 
     def do_startup(self) -> None:
-        """Make the application icon findable when running from a checkout.
+        """Make the icon findable from a checkout and install the style sheet.
 
         Returns:
             None.
         """
         Adw.Application.do_startup(self)
         icon_dir = resolve_icon_search_dir()
-        display = Gtk.IconTheme.get_for_display(self._display())
+        display = self._display()
+        install_styles(display)
         # Installed copies use the system theme; checkouts add their own icon directory.
-        if icon_dir and display is not None:
-            display.add_search_path(icon_dir)
+        if icon_dir:
+            Gtk.IconTheme.get_for_display(display).add_search_path(icon_dir)
 
     @staticmethod
     def _display():
