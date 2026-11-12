@@ -1,433 +1,67 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# zoomctl — command line client of hyprland-zoom 0.2.
+#
+# With the Lua engine loaded (Hyprland 0.55+ and `zoomctl setup`) every action is one
+# `hyprctl eval` into the compositor (contract C4). Without it a flock-serialised bash path
+# keeps zoom working on the legacy hyprlang config (decision E8).
+#
+# Layout: this file only wires the libraries and dispatches; the logic lives in lib/*.sh.
+set -u -o pipefail
 
-script_directory="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-share_directory="${ZOOMCTL_SHARE_DIR:-/usr/share/hyprland-zoom}"
+# Directory of this script; the checkout layout and tests find lib/ and the schema from it.
+ZOOMCTL_SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ -d "$script_directory/lib" ]; then
-  # Running from the repository checkout.
-  lib_directory="$script_directory/lib"
-else
-  lib_directory="$share_directory/lib"
-fi
-
-source "$lib_directory/math.sh"
-source "$lib_directory/config.sh"
-source "$lib_directory/state.sh"
-source "$lib_directory/hyprland.sh"
-source "$lib_directory/setup.sh"
-
-zoomctl_apply_zoom() {
-  local current_zoom
-  local requested_zoom
-  local clamped_zoom
-
-  current_zoom="$(zoomctl_hyprland_get_zoom)"
-  requested_zoom="$(zoomctl_add_float "$current_zoom" "$1")"
-  clamped_zoom="$(zoomctl_clamp_float "$requested_zoom" "$ZOOMCTL_MIN" "$ZOOMCTL_MAX")"
-
-  zoomctl_hyprland_set_zoom "$clamped_zoom"
-  zoomctl_hyprland_center_cursor
-}
-
-zoomctl_command_in() {
-  zoomctl_apply_zoom "$ZOOMCTL_STEP"
-}
-
-zoomctl_command_out() {
-  zoomctl_apply_zoom "-$(zoomctl_format_float "$ZOOMCTL_STEP")"
-}
-
-zoomctl_command_toggle() {
-  local current_zoom
-  local stored_zoom
-
-  current_zoom="$(zoomctl_hyprland_get_zoom)"
-
-  if zoomctl_float_gt "$current_zoom" "$ZOOMCTL_RESET"; then
-    zoomctl_state_save "$current_zoom"
-    zoomctl_hyprland_set_zoom "$ZOOMCTL_RESET"
-    zoomctl_hyprland_center_cursor
-    return 0
-  fi
-
-  if stored_zoom="$(zoomctl_state_read)"; then
-    zoomctl_hyprland_set_zoom "$stored_zoom"
-    zoomctl_state_clear
+# zoomctl_lib_dir — locate the libraries: next to the script (checkout) or in the share dir.
+# Args:    none
+# Returns: 0 always; stdout: directory
+# Globals: reads ZOOMCTL_SCRIPT_DIR, ZOOMCTL_SHARE_DIR
+zoomctl_lib_dir() {
+  # A checkout keeps lib/ beside the script; an installed copy uses the share directory.
+  if [ -d "$ZOOMCTL_SCRIPT_DIR/lib" ]; then
+    printf '%s\n' "$ZOOMCTL_SCRIPT_DIR/lib"
   else
-    zoomctl_hyprland_set_zoom "$ZOOMCTL_RESET"
+    printf '%s/lib\n' "${ZOOMCTL_SHARE_DIR:-/usr/share/hyprland-zoom}"
   fi
-
-  zoomctl_hyprland_center_cursor
 }
 
-zoomctl_command_reset() {
-  zoomctl_hyprland_set_zoom "$ZOOMCTL_RESET"
-  zoomctl_state_clear
-  zoomctl_hyprland_center_cursor
-}
+# Load every library; order only matters for the constants at the top of each file.
+ZOOMCTL_LIB_DIR="$(zoomctl_lib_dir)"
+for library in common math validate schema config userconfig template state hyprland \
+  engine legacy setup status doctor cmd_zoom cmd_config cmd_info; do
+  # shellcheck source=/dev/null
+  source "$ZOOMCTL_LIB_DIR/$library.sh" || exit 1
+done
 
-zoomctl_command_status() {
-  local current_zoom
-  local stored_zoom
-
-  current_zoom="$(zoomctl_hyprland_get_zoom)"
-  stored_zoom="$(zoomctl_state_read 2>/dev/null || true)"
-
-  cat <<EOF
-Hyprland zoom status
-  Current zoom: $current_zoom
-  Reset zoom:   $ZOOMCTL_RESET
-  Step:         $ZOOMCTL_STEP
-  Bounds:       $ZOOMCTL_MIN .. $ZOOMCTL_MAX
-  State dir:    $(zoomctl_state_directory)
-  Saved zoom:   ${stored_zoom:-<none>}
-  Cursor center: $ZOOMCTL_CENTER_CURSOR
-EOF
-}
-
-zoomctl_command_show_config() {
-  cat <<EOF
-Active zoomctl configuration
-$(zoomctl_config_summary)
-EOF
-}
-
-zoomctl_run_privileged() {
-  if [ "$(id -u)" = '0' ]; then
-    "$@"
-    return $?
-  fi
-
-  if command -v sudo >/dev/null 2>&1; then
-    sudo "$@"
-    return $?
-  fi
-
-  if command -v doas >/dev/null 2>&1; then
-    doas "$@"
-    return $?
-  fi
-
-  if command -v pkexec >/dev/null 2>&1; then
-    pkexec "$@"
-    return $?
-  fi
-
-  printf 'zoomctl: uninstall requires sudo, doas, or pkexec\n' >&2
-  return 1
-}
-
-zoomctl_prompt_value() {
-  local prompt="$1"
-  local default_value="$2"
-  local response
-
-  if command -v zenity >/dev/null 2>&1; then
-    response="$(zenity --entry --title='hyprland-zoom' --text="$prompt" --entry-text="$default_value")" || return 1
-    printf '%s\n' "$response"
-    return 0
-  fi
-
-  if command -v yad >/dev/null 2>&1; then
-    response="$(yad --entry --title='hyprland-zoom' --text="$prompt" --entry-text="$default_value")" || return 1
-    printf '%s\n' "$response"
-    return 0
-  fi
-
-  printf '%s [%s]: ' "$prompt" "$default_value"
-  read -r response
-  if [ -z "$response" ]; then
-    response="$default_value"
-  fi
-
-  printf '%s\n' "$response"
-}
-
-zoomctl_pick_menu() {
-  local prompt="$1"
-  shift
-  local selection
-
-  if command -v wofi >/dev/null 2>&1; then
-    selection="$(printf '%s\n' "$@" | wofi --dmenu --prompt "$prompt")" || return 1
-    printf '%s\n' "$selection"
-    return 0
-  fi
-
-  if command -v rofi >/dev/null 2>&1; then
-    selection="$(printf '%s\n' "$@" | rofi -dmenu -p "$prompt")" || return 1
-    printf '%s\n' "$selection"
-    return 0
-  fi
-
-  if command -v fuzzel >/dev/null 2>&1; then
-    selection="$(printf '%s\n' "$@" | fuzzel --dmenu --prompt "$prompt")" || return 1
-    printf '%s\n' "$selection"
-    return 0
-  fi
-
-  if command -v bemenu >/dev/null 2>&1; then
-    selection="$(printf '%s\n' "$@" | bemenu -i -p "$prompt")" || return 1
-    printf '%s\n' "$selection"
-    return 0
-  fi
-
-  printf '%s\n' "$@" | nl -w1 -s': ' >&2
-  printf '%s: ' "$prompt" >&2
-  read -r selection
-
-  case "$selection" in
-    ''|*[!0-9]*) return 1 ;;
-  esac
-
-  selection=$((selection - 1))
-  [ "$selection" -ge 0 ] && [ "$selection" -lt "$#" ] || return 1
-
-  set -- "$@"
-  eval "printf '%s\\n' \"\${$((selection + 1))}\""
-}
-
-zoomctl_write_user_config() {
-  local config_file
-
-  config_file="${XDG_CONFIG_HOME:-$HOME/.config}/zoomctl/zoom.conf"
-  mkdir -p "$(dirname -- "$config_file")"
-
-  cat > "$config_file" <<EOF
-# user overrides for hyprland-zoom
-ZOOM_STEP=$ZOOMCTL_STEP
-ZOOM_MIN=$ZOOMCTL_MIN
-ZOOM_MAX=$ZOOMCTL_MAX
-ZOOM_RESET=$ZOOMCTL_RESET
-ZOOM_CENTER_CURSOR=$ZOOMCTL_CENTER_CURSOR
-EOF
-
-  printf 'zoomctl: wrote %s\n' "$config_file"
-}
-
-zoomctl_command_set_usage() {
-  local center_cursor_label
-
-  center_cursor_label='off'
-  [ "$ZOOMCTL_CENTER_CURSOR" = '1' ] && center_cursor_label='on'
-
-  cat <<EOF
-Usage: zoomctl set <key> <value>
-
-Keys                current value
-  step              $ZOOMCTL_STEP     zoom step added or removed per zoom in/out
-  min               $ZOOMCTL_MIN     minimum allowed zoom factor
-  max               $ZOOMCTL_MAX     maximum allowed zoom factor
-  reset             $ZOOMCTL_RESET     zoom factor used for reset and as the toggle baseline
-  center-cursor     $center_cursor_label    recenter the cursor after each zoom action (on/off)
-
-Examples:
-  zoomctl set step 0.25
-  zoomctl set max 6
-  zoomctl set center-cursor on
-EOF
-}
-
-zoomctl_command_set() {
-  local requested_key="$1"
-  local requested_value="$2"
-  local canonical_key
-  local applied_value
-
-  if [ -z "$requested_key" ]; then
-    zoomctl_command_set_usage
-    return 0
-  fi
-
-  if [ -z "$requested_value" ]; then
-    printf 'zoomctl: missing value for "%s"\n\n' "$requested_key" >&2
-    zoomctl_command_set_usage >&2
-    return 1
-  fi
-
-  canonical_key="$(zoomctl_config_canonical_key "$requested_key")" || {
-    printf 'zoomctl: unknown setting "%s"\n\n' "$requested_key" >&2
-    zoomctl_command_set_usage >&2
-    return 1
-  }
-
-  applied_value="$requested_value"
-  if [ "$canonical_key" = 'ZOOM_CENTER_CURSOR' ]; then
-    applied_value="$(zoomctl_normalize_bool "$requested_value")"
-  fi
-
-  if ! zoomctl_config_validate_value "$canonical_key" "$applied_value"; then
-    printf 'zoomctl: "%s" is not a valid value for %s\n' "$requested_value" "$canonical_key" >&2
-    return 1
-  fi
-
-  case "$canonical_key" in
-    ZOOM_MIN)
-      if zoomctl_float_gt "$applied_value" "$ZOOMCTL_MAX"; then
-        printf 'zoomctl: min (%s) cannot be greater than the current max (%s)\n' "$applied_value" "$ZOOMCTL_MAX" >&2
-        return 1
-      fi
-      ;;
-    ZOOM_MAX)
-      if zoomctl_float_gt "$ZOOMCTL_MIN" "$applied_value"; then
-        printf 'zoomctl: max (%s) cannot be less than the current min (%s)\n' "$applied_value" "$ZOOMCTL_MIN" >&2
-        return 1
-      fi
-      ;;
-    ZOOM_RESET)
-      if zoomctl_float_gt "$applied_value" "$ZOOMCTL_MAX" || zoomctl_float_gt "$ZOOMCTL_MIN" "$applied_value"; then
-        printf 'zoomctl: reset (%s) must be within min (%s) .. max (%s)\n' "$applied_value" "$ZOOMCTL_MIN" "$ZOOMCTL_MAX" >&2
-        return 1
-      fi
-      ;;
-  esac
-
-  zoomctl_config_apply_setting "$canonical_key" "$applied_value"
-  zoomctl_write_user_config
-  printf 'zoomctl: %s = %s\n' "$canonical_key" "$(zoomctl_config_get "$canonical_key")"
-}
-
-zoomctl_command_get() {
-  local requested_key="$1"
-  local canonical_key
-
-  if [ -z "$requested_key" ]; then
-    printf 'zoomctl: usage: zoomctl get <key>\n' >&2
-    return 1
-  fi
-
-  canonical_key="$(zoomctl_config_canonical_key "$requested_key")" || {
-    printf 'zoomctl: unknown setting "%s"\n' "$requested_key" >&2
-    return 1
-  }
-
-  zoomctl_config_get "$canonical_key"
-}
-
-zoomctl_command_configure() {
-  local step
-  local minimum
-  local maximum
-  local reset
-  local center_cursor
-
-  step="$(zoomctl_prompt_value 'Zoom step' "$ZOOMCTL_STEP")" || return 1
-  minimum="$(zoomctl_prompt_value 'Minimum zoom' "$ZOOMCTL_MIN")" || return 1
-  maximum="$(zoomctl_prompt_value 'Maximum zoom' "$ZOOMCTL_MAX")" || return 1
-  reset="$(zoomctl_prompt_value 'Reset zoom' "$ZOOMCTL_RESET")" || return 1
-  center_cursor="$(zoomctl_prompt_value 'Center cursor after zoom? on/off' "$ZOOMCTL_CENTER_CURSOR")" || return 1
-
-  ZOOMCTL_STEP="$step"
-  ZOOMCTL_MIN="$minimum"
-  ZOOMCTL_MAX="$maximum"
-  ZOOMCTL_RESET="$reset"
-  ZOOMCTL_CENTER_CURSOR="$(zoomctl_normalize_bool "$center_cursor")"
-  zoomctl_config_validate
-  zoomctl_write_user_config
-}
-
-zoomctl_command_uninstall() {
-  local confirmation
-
-  confirmation="$(zoomctl_pick_menu 'Confirm uninstall' 'No' 'Yes')" || return 1
-  case "$confirmation" in
-    Yes)
-      zoomctl_run_privileged pacman -Rns hyprland-zoom
-      ;;
-    *)
-      printf 'zoomctl: uninstall cancelled\n'
-      ;;
-  esac
-}
-
-zoomctl_command_edit_config() {
-  local config_file
-
-  config_file="${XDG_CONFIG_HOME:-$HOME/.config}/zoomctl/zoom.conf"
-  mkdir -p "$(dirname -- "$config_file")"
-
-  if [ -n "${EDITOR:-}" ]; then
-    exec "$EDITOR" "$config_file"
-  fi
-
-  exec vi "$config_file"
-}
-
-zoomctl_usage() {
-  cat <<'EOF'
-Usage: zoomctl <command>
-
-Commands:
-  setup         add the packaged hyprland-bindings.conf include to hyprland.conf
-  in            zoom in by the configured step
-  out           zoom out by the configured step
-  toggle        toggle the stored zoom against the reset value
-  reset         hard reset to the configured reset value
-  status        print the active zoom state
-  config        print the active configuration
-  set           set and save a single setting, e.g. `zoomctl set step 0.25`
-  get           print the active value of a single setting, e.g. `zoomctl get max`
-  configure     interactively prompt for every setting (menu-driven)
-  edit-config   open the user config in $EDITOR
-  uninstall     remove the Arch package with a privilege helper
-  help          show this help
-
-Run `zoomctl set` with no arguments for the list of setting keys.
-EOF
-}
-
+# main — dispatch the command line; every arm is a single call into a command_* function.
+# Args:    $1 command; $2.. its arguments
+# Returns: the command's status (0 ok, 1 error, 2 usage)
+# Globals: none
 main() {
-  local command
-
-  zoomctl_config_load
-  command="${1:-help}"
-
+  local command="${1:-help}"
+  [ "$#" -eq 0 ] || shift
   case "$command" in
-    setup|install-hyprland)
-      zoomctl_install_hyprland_include
-      ;;
-    in|zoom-in)
-      zoomctl_command_in
-      ;;
-    out|zoom-out)
-      zoomctl_command_out
-      ;;
-    toggle)
-      zoomctl_command_toggle
-      ;;
-    reset|hard-reset)
-      zoomctl_command_reset
-      ;;
-    status)
-      zoomctl_command_status
-      ;;
-    config|show-config)
-      zoomctl_command_show_config
-      ;;
-    set)
-      zoomctl_command_set "${2:-}" "${3:-}"
-      ;;
-    get)
-      zoomctl_command_get "${2:-}"
-      ;;
-    configure)
-      zoomctl_command_configure
-      ;;
-    edit-config)
-      zoomctl_command_edit_config
-      ;;
-    uninstall|remove)
-      zoomctl_command_uninstall
-      ;;
-    help|-h|--help)
-      zoomctl_usage
-      ;;
-    *)
-      printf 'zoomctl: unknown command %s\n' "$command" >&2
-      zoomctl_usage >&2
-      return 1
-      ;;
+    in|zoom-in) zoomctl_command_in "$@" ;;  # zoom in by n steps
+    out|zoom-out) zoomctl_command_out "$@" ;;  # zoom out by n steps
+    zoom) zoomctl_command_zoom "$@" ;;  # absolute factor
+    toggle) zoomctl_command_toggle "$@" ;;  # reset zoom <-> last zoom
+    reset|hard-reset) zoomctl_command_reset "$@" ;;  # back to the reset zoom
+    filter) zoomctl_command_filter "$@" ;;  # colour filter on/off/name
+    tracking) zoomctl_command_tracking "$@" ;;  # pointer tracking mode
+    set) zoomctl_command_set "$@" ;;  # save one setting
+    get) zoomctl_command_get "$@" ;;  # read one setting
+    unset) zoomctl_command_unset "$@" ;;  # drop one override
+    reset-config) zoomctl_command_reset_config "$@" ;;  # drop all overrides
+    config|show-config) zoomctl_command_config "$@" ;;  # show configuration
+    preview) zoomctl_command_preview "$@" ;;  # live try-out for the UI
+    status) zoomctl_command_status "$@" ;;  # zoom state
+    doctor) zoomctl_command_doctor "$@" ;;  # installation checks
+    setup|install-hyprland) zoomctl_command_setup "$@" ;;  # wire into Hyprland config
+    ui|configure) zoomctl_command_ui "$@" ;;  # open the settings window
+    edit-config) zoomctl_command_edit_config "$@" ;;  # edit the user file by hand
+    uninstall|remove) zoomctl_command_uninstall "$@" ;;  # remove the package
+    version|--version|-V) zoomctl_command_version ;;  # print the version
+    help|-h|--help) zoomctl_command_help ;;  # usage text
+    *) zoomctl_usage_error "unknown command '$command'" ;;  # exit 2
   esac
 }
 
