@@ -53,7 +53,7 @@ current level, which feels even at 1.5x and at 8x. Prefer a fixed amount? Set *S
 ## The settings window
 
 Open it with `SUPER + ALT + Z`, `zoomctl ui` or from your application launcher
-(*Zoom Settings*). Every change applies immediately and is saved.
+(*Hyprland Zoom*). Every change applies immediately and is saved.
 
 | Page | What it controls |
 |---|---|

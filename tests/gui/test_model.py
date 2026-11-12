@@ -145,7 +145,7 @@ class ValueTests(unittest.TestCase):
         verdict = self.check("BIND_MODIFIERS", "alt+super + ALT")
         self.assertEqual(verdict.canonical, "SUPER + ALT")
         # The order is zoomctl's own (SUPER, SHIFT, CTRL, ALT), so both tools write one text.
-        self.assertEqual(self.check("BIND_MODIFIERS", "Control+Shift").canonical, "SHIFT + CTRL")
+        self.assertEqual(self.check("BIND_MODIFIERS", "Control+Shift").canonical, "CTRL + SHIFT")
         self.assertEqual(self.check("BIND_MODIFIERS", "alt + ctrl + super").canonical,
                          "SUPER + CTRL + ALT")
         # No modifier at all and an unknown modifier are both invalid.
@@ -179,7 +179,7 @@ class KeyTests(unittest.TestCase):
     def test_chord_parts_for_the_keycap_strip(self):
         """The strip shows modifiers then the key; disabled binds show nothing."""
         self.assertEqual(keys.chord_parts("SUPER + ALT", "I"), ["Super", "Alt", "I"])
-        self.assertEqual(keys.chord_parts("CTRL + SHIFT", "RETURN"), ["Shift", "Ctrl", "Return"])
+        self.assertEqual(keys.chord_parts("CTRL + SHIFT", "RETURN"), ["Ctrl", "Shift", "Return"])
         self.assertEqual(keys.chord_parts("SUPER", ""), [])
         # Unknown modifier text degrades to the key alone.
         self.assertEqual(keys.chord_parts("bogus", "F5"), ["F5"])

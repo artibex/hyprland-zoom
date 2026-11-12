@@ -27,7 +27,7 @@ _TRUE_ALIASES = {"on", "1", "true", "yes"}
 _FALSE_ALIASES = {"off", "0", "false", "no"}
 # Modifier names in zoomctl's canonical order (validate.sh), with the aliases that map onto
 # them; one order everywhere keeps a saved value identical to what zoomctl would write.
-MODIFIER_ORDER = ("SUPER", "SHIFT", "CTRL", "ALT")
+MODIFIER_ORDER = ("SUPER", "CTRL", "ALT", "SHIFT")
 _MODIFIER_ALIASES = {
     "SUPER": "SUPER", "WIN": "SUPER", "META": "SUPER", "MOD4": "SUPER",
     "CTRL": "CTRL", "CONTROL": "CTRL",

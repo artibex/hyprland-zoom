@@ -255,7 +255,7 @@ class StructureTests(GuiTestCase):
         self.assertTrue(self.row(window, "ZOOM_TRACKING").buttons["follow"].get_active())
         self.assertEqual(self.row(window, "SCROLL_EVENT_DELAY_MS").widget.get_value(), 120)
         # The toggles mirror the modifier text.
-        self.assertEqual(self.row(window, "BIND_MODIFIERS").selected_names(), ["SHIFT", "CTRL"])
+        self.assertEqual(self.row(window, "BIND_MODIFIERS").selected_names(), ["CTRL", "SHIFT"])
 
     def test_every_row_has_a_visible_label_and_no_hover_noise(self):
         """Accessibility baseline: a name on every setting, no tooltip repeating the help."""
@@ -1254,12 +1254,12 @@ class KeyCaptureTests(GuiTestCase):
         window = self.open_window()
         toggles = self.row(window, "BIND_MODIFIERS").toggles
         # The toggles come in zoomctl's own order.
-        self.assertEqual(list(toggles), ["SUPER", "SHIFT", "CTRL", "ALT"])
+        self.assertEqual(list(toggles), ["SUPER", "CTRL", "ALT", "SHIFT"])
         toggles["CTRL"].set_active(True)
         toggles["SHIFT"].set_active(True)
         # Both changes are sent; the last one has all four modifiers.
         self.wait_for_calls("set", count=2)
-        self.assertEqual(self.fake.calls_matching("set")[-1][2], "SUPER + SHIFT + CTRL + ALT")
+        self.assertEqual(self.fake.calls_matching("set")[-1][2], "SUPER + CTRL + ALT + SHIFT")
 
 
 class AppTests(GuiTestCase):
