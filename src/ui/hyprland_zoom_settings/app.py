@@ -1,16 +1,19 @@
 """The application object, the root check and ``main``."""
 
-# os reads the environment and the user id; sys passes argv; typing documents optionals.
+# logging shows bookkeeping notes on the terminal; os reads the environment and the user id;
+# sys passes argv; typing documents optionals.
+import logging
 import os
 import sys
 from typing import List, Mapping, Optional
 
+# gi pins the toolkit versions before any GTK import below.
 import gi
 
 # Adw needs its own pin; both are required before the import below.
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, Gtk  # noqa: E402 - gi.require_version must run first
+from gi.repository import Adw, Gdk, Gio, Gtk  # noqa: E402 - gi.require_version must run first
 
 from .backend import ZoomctlClient  # noqa: E402
 from .constants import APP_ID, APP_NAME  # noqa: E402
@@ -74,23 +77,12 @@ class ZoomSettingsApplication(Adw.Application):
         """
         Adw.Application.do_startup(self)
         icon_dir = resolve_icon_search_dir()
-        display = self._display()
+        display = Gdk.Display.get_default()
         # Styles must be registered before the first window is built.
         install_styles(display)
         # Installed copies use the system theme; checkouts add their own icon directory.
         if icon_dir:
             Gtk.IconTheme.get_for_display(display).add_search_path(icon_dir)
-
-    @staticmethod
-    def _display():
-        """Get the default display.
-
-        Returns:
-            The Gdk.Display the application runs on.
-        """
-        from gi.repository import Gdk
-
-        return Gdk.Display.get_default()
 
     def do_activate(self) -> None:
         """Present the existing window or build a new one.
@@ -157,4 +149,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(refusal, file=sys.stderr)
         # A non-zero code lets launchers see the refusal.
         return EXIT_REFUSED
+    # Bookkeeping notes of zoomctl (backups, paths) go to the terminal instead of a toast.
+    logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
     return ZoomSettingsApplication().run(sys.argv if argv is None else argv)

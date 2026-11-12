@@ -23,9 +23,11 @@ MODE_ZOOM = "zoom"
 MODE_FILTER = "filter"
 # Zoom level assumed when the status does not report one (the unzoomed screen).
 FALLBACK_ZOOM = 1.0
-# Schema key and value that switch the colour filter on.
+# Schema keys of the color filter and its on/off switch.
 FILTER_ACTIVE_KEY = "FILTER_ACTIVE"
 FILTER_KEY = "FILTER"
+# zoomctl flag: zoom without remembering the level as the toggle's "last zoom".
+TRANSIENT_FLAG = "--transient"
 
 
 class TryItController(GObject.Object):
@@ -64,10 +66,14 @@ class TryItController(GObject.Object):
         self.mode = MODE_IDLE
         self.seconds_left = 0
         self._previous_zoom: Optional[float] = None
+        # The filter the running preview shows; a different saved filter updates the preview.
+        self._previewed_filter = ""
         self._timer_id = 0
         # Commands run strictly one after another so a quick Stop cannot overtake the start.
         self._steps: List[Callable[[Callable[[], None]], None]] = []
         self._step_running = False
+        # A filter chosen during a preview must show up in the preview (R-P2-11).
+        settings.connect("config-changed", lambda _settings: self._follow_filter_choice())
 
     @property
     def busy(self) -> bool:
@@ -93,7 +99,10 @@ class TryItController(GObject.Object):
         previous = self.settings.status.zoom
         self._previous_zoom = FALLBACK_ZOOM if previous is None else previous
         self._begin(MODE_ZOOM, self.zoom_seconds)
-        self._enqueue_command(["zoom", format_float(ZOOM_TEST_FACTOR)], self._on_start_result)
+        # The test zoom is transient: it must not become the toggle's remembered level.
+        self._enqueue_command(
+            ["zoom", format_float(ZOOM_TEST_FACTOR), TRANSIENT_FLAG], self._on_start_result
+        )
 
     def start_filter_preview(self) -> None:
         """Preview the configured filter live, without saving anything.
@@ -104,12 +113,35 @@ class TryItController(GObject.Object):
         if self.busy:
             return
         self._begin(MODE_FILTER, self.filter_seconds)
+        # Remember the shown filter so a later change can update the preview.
+        self._previewed_filter = self.settings.values[FILTER_KEY]
         # The preview forces the configured filter on without saving anything.
-        overrides = [
-            f"{FILTER_KEY}={self.settings.values[FILTER_KEY]}",
-            f"{FILTER_ACTIVE_KEY}=on",
-        ]
-        self._enqueue_command(["preview", *overrides], self._on_start_result)
+        self._enqueue_command(self._preview_arguments(), self._on_start_result)
+
+    def _preview_arguments(self) -> List[str]:
+        """Build the ``preview`` call that shows the filter being previewed.
+
+        Returns:
+            zoomctl arguments forcing the previewed filter on.
+        """
+        # Both overrides travel together so a changed filter keeps the preview switched on.
+        return ["preview", f"{FILTER_KEY}={self._previewed_filter}", f"{FILTER_ACTIVE_KEY}=on"]
+
+    def _follow_filter_choice(self) -> None:
+        """Show a newly saved filter in the running preview and restart its countdown.
+
+        Returns:
+            None.
+        """
+        chosen = self.settings.values.get(FILTER_KEY, "")
+        # Only a real change during a preview matters (rejected changes keep the old value).
+        if self.mode != MODE_FILTER or chosen == self._previewed_filter:
+            return
+        self._previewed_filter = chosen
+        # The user is still deciding, so the preview gets its full time again.
+        self.seconds_left = self.filter_seconds
+        self._enqueue_command(self._preview_arguments())
+        self.emit("changed")
 
     def _begin(self, mode: str, seconds: int) -> None:
         """Enter a test mode and start the countdown.
@@ -136,9 +168,14 @@ class TryItController(GObject.Object):
         Returns:
             None.
         """
-        # Nothing was applied on failure, so there is nothing to restore; the error is a toast.
-        if not result.ok and self.busy:
-            self._end(restore=False)
+        if result.ok or not self.busy:
+            return
+        # The mode is read first: ending the test clears it.
+        mode = self.mode
+        self._end(restore=False)
+        # A refused preview may still have applied part of its overrides: end it quietly.
+        if mode == MODE_FILTER:
+            self._enqueue_command(["preview", "--end"], report=False)
 
     # ----- ending -------------------------------------------------------------------------
 
@@ -209,7 +246,9 @@ class TryItController(GObject.Object):
         # The countdown text disappears with the mode.
         self.seconds_left = 0
         if restore and mode == MODE_ZOOM:
-            self._enqueue_command(["zoom", format_float(self._previous_zoom or FALLBACK_ZOOM)])
+            self._enqueue_command([
+                "zoom", format_float(self._previous_zoom or FALLBACK_ZOOM), TRANSIENT_FLAG,
+            ])
         # Ending a preview drops its overrides; the saved config shows again.
         elif restore and mode == MODE_FILTER:
             self._enqueue_command(["preview", "--end"])
@@ -229,12 +268,16 @@ class TryItController(GObject.Object):
         self._steps.append(step)
         self._advance()
 
-    def _enqueue_command(self, arguments: List[str], on_result=None) -> None:
+    def _enqueue_command(
+        self, arguments: List[str], on_result=None, report: bool = True
+    ) -> None:
         """Queue one zoomctl command.
 
         Args:
             arguments: zoomctl arguments.
             on_result: Optional callback with the CommandResult.
+            report: False keeps a failure of this command from being toasted (cleanup calls
+                that are expected to fail together with the call before them).
 
         Returns:
             None.
@@ -264,8 +307,9 @@ class TryItController(GObject.Object):
                 finally:
                     done()
 
-            # run_action reports a failure once and then calls finished.
-            self.settings.run_action(arguments, finished)
+            # run_action reports a failure once and then calls finished; quiet calls skip it.
+            runner = self.settings.run_action if report else self.settings.client.run
+            runner(arguments, finished)
 
         self._enqueue(step)
 

@@ -4,16 +4,22 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk  # noqa: E402 - gi.require_version must run first
+from gi.repository import Adw, GObject, Gtk, Pango  # noqa: E402 - gi.require_version first
 
 from .constants import ZOOM_TEST_FACTOR  # noqa: E402
 from .controller import SettingsController  # noqa: E402
-from .porcelain import describe_status  # noqa: E402
+from .porcelain import STATE_COMPATIBILITY, STATE_READY, describe_status  # noqa: E402
 from .tryit import MODE_FILTER, MODE_IDLE, MODE_ZOOM, TryItController  # noqa: E402
+
+# Why the start buttons are locked while the engine cannot be reached.
+NEEDS_ENGINE_HINT = "Needs the zoom engine to be set up and Hyprland to be reachable."
+NEEDS_FILTER_ENGINE_HINT = "Color filters need the zoom engine; compatibility mode has none."
+# Gap between buttons and between wrapped lines (pixels).
+BUTTON_SPACING = 8
 
 
 class TryItBar(Gtk.Box):
-    """Heading, test buttons and the status line; reacts to both controllers' signals."""
+    """Heading, status line and test buttons; reacts to both controllers' signals."""
 
     def __init__(self, settings: SettingsController, session: TryItController) -> None:
         """Build the bar and connect it to the controllers.
@@ -28,24 +34,61 @@ class TryItBar(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.settings = settings
         self.session = session
+        # Initial state of the announcement tracker and the compact form.
+        self._last_mode = MODE_IDLE
+        self._compact = False
         # One literal for all four margins keeps the bar from touching the edges.
         for side in ("top", "bottom", "start", "end"):
             getattr(self, f"set_margin_{side}")(12)
-        heading = Gtk.Label(label="Try it", xalign=0.0)
-        # The heading style follows the theme's own title weight.
-        heading.add_css_class("heading")
-        self.append(heading)
+        self._build_status_row()
         self._build_buttons()
-        # Selectable so the status line can be copied into a bug report.
-        self.status_label = Gtk.Label(xalign=0.0, wrap=True, selectable=True)
-        self.status_label.add_css_class("dim-label")
-        self.status_label.add_css_class("caption")
-        # The status line sits below the buttons.
-        self.append(self.status_label)
         # The bar redraws whenever the session or the status changes.
         session.connect("changed", lambda _session: self.refresh())
         settings.connect("status-changed", lambda _settings: self.refresh())
         self.refresh()
+
+    @GObject.Property(type=bool, default=False)
+    def compact(self) -> bool:
+        """Whether the bar uses its space-saving form (narrow windows).
+
+        Returns:
+            True while compact.
+        """
+        return self._compact
+
+    @compact.setter
+    def compact(self, value: bool) -> None:
+        """Hide the heading in the compact form.
+
+        Args:
+            value: True for the compact form.
+
+        Returns:
+            None.
+        """
+        # The buttons say what they do, so the heading is the first thing to give up.
+        self._compact = value
+        self.heading.set_visible(not value)
+
+    def _build_status_row(self) -> None:
+        """Create the heading and the one-line status.
+
+        Returns:
+            None.
+        """
+        row = Gtk.Box(spacing=12)
+        self.heading = Gtk.Label(label="Try it", xalign=0.0)
+        # The heading style follows the theme's own title weight.
+        self.heading.add_css_class("heading")
+        # The sentence wraps instead of being cut, so nothing is lost at large text sizes.
+        self.status_label = Gtk.Label(xalign=0.0, hexpand=True, wrap=True,
+                                      wrap_mode=Pango.WrapMode.WORD_CHAR)
+        self.status_label.add_css_class("dim-label")
+        self.status_label.add_css_class("caption")
+        # The heading and the status share one line.
+        row.append(self.heading)
+        row.append(self.status_label)
+        self.append(row)
 
     def _build_buttons(self) -> None:
         """Create the buttons in a wrapping row (they wrap at large text sizes).
@@ -53,18 +96,15 @@ class TryItBar(Gtk.Box):
         Returns:
             None.
         """
-        self.button_box = Adw.WrapBox(child_spacing=8, line_spacing=8)
+        self.button_box = Adw.WrapBox(child_spacing=BUTTON_SPACING, line_spacing=BUTTON_SPACING)
         self.zoom_button = self._make_button("", self.session.start_zoom_test, "suggested-action")
         self.filter_button = self._make_button("", self.session.start_filter_preview)
         # Zoom test ends early with this button.
         self.stop_button = self._make_button("Stop now", self.session.stop)
         self.keep_button = self._make_button("Keep", self.session.keep, "suggested-action")
         self.revert_button = self._make_button("Revert", self.session.stop)
-        # Wraps at large text sizes instead of widening the window.
+        # The countdown is plain text, so assistive tools read it as it is.
         self.countdown_label = Gtk.Label(xalign=0.0, wrap=True)
-        self.countdown_label.update_property(
-            [Gtk.AccessibleProperty.LABEL], ["Try it countdown"]
-        )
         for widget in (self.zoom_button, self.filter_button, self.stop_button, self.keep_button,
                        self.revert_button, self.countdown_label):
             # The WrapBox lets buttons flow onto a second line when the window is narrow.
@@ -111,8 +151,54 @@ class TryItBar(Gtk.Box):
         self.revert_button.set_visible(mode == MODE_FILTER)
         self.countdown_label.set_visible(not idle)
         self.countdown_label.set_label(self._countdown_text(mode))
-        # The status line is rebuilt on every refresh.
-        self.status_label.set_label(describe_status(self.settings.status))
+        # Status line, locks and announcements follow the same state.
+        self._refresh_status_line()
+        self._refresh_sensitivity()
+        self._announce_transition(mode)
+
+    def _refresh_status_line(self) -> None:
+        """Show the status sentence and keep the full text in the tooltip.
+
+        Returns:
+            None.
+        """
+        text = describe_status(self.settings.status, self.settings.status_received)
+        self.status_label.set_label(text)
+        # The tooltip repeats the line for pointer users who hover it.
+        self.status_label.set_tooltip_text(text)
+
+    def _refresh_sensitivity(self) -> None:
+        """Lock the start buttons while the engine cannot do the test, and say why.
+
+        Returns:
+            None.
+        """
+        status, received = self.settings.status, self.settings.status_received
+        zoom_ok = received and status.state in (STATE_READY, STATE_COMPATIBILITY)
+        filter_ok = received and status.state == STATE_READY
+        # Locked buttons cannot start a test the engine cannot do.
+        self.zoom_button.set_sensitive(zoom_ok)
+        self.filter_button.set_sensitive(filter_ok)
+        # A locked button explains itself instead of silently doing nothing.
+        self.zoom_button.set_tooltip_text(None if zoom_ok else NEEDS_ENGINE_HINT)
+        hint = NEEDS_FILTER_ENGINE_HINT if zoom_ok else NEEDS_ENGINE_HINT
+        self.filter_button.set_tooltip_text(None if filter_ok else hint)
+
+    def _announce_transition(self, mode: str) -> None:
+        """Tell screen readers when a test starts or ends (the countdown itself is silent).
+
+        Args:
+            mode: Current session mode.
+
+        Returns:
+            None.
+        """
+        previous, self._last_mode = self._last_mode, mode
+        # Announcing every second would drown the user; only the transitions count.
+        if previous == mode or not hasattr(self.countdown_label, "announce"):
+            return
+        text = self._countdown_text(mode) if mode != MODE_IDLE else "Test ended"
+        self.countdown_label.announce(text, Gtk.AccessibleAnnouncementPriority.MEDIUM)
 
     def _countdown_text(self, mode: str) -> str:
         """Compose the countdown sentence.

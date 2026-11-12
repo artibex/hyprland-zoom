@@ -5,7 +5,7 @@ import unittest
 
 import support
 
-from hyprland_zoom_settings import keys, porcelain, presentation, values
+from hyprland_zoom_settings import keys, messages, porcelain, presentation, sizing, values
 from hyprland_zoom_settings.schema import SchemaError, parse_schema
 
 
@@ -144,7 +144,10 @@ class ValueTests(unittest.TestCase):
         """Modifier lists are normalised; empty and unknown lists are refused."""
         verdict = self.check("BIND_MODIFIERS", "alt+super + ALT")
         self.assertEqual(verdict.canonical, "SUPER + ALT")
+        # The order is zoomctl's own (SUPER, SHIFT, CTRL, ALT), so both tools write one text.
         self.assertEqual(self.check("BIND_MODIFIERS", "Control+Shift").canonical, "CTRL + SHIFT")
+        self.assertEqual(self.check("BIND_MODIFIERS", "alt + ctrl + super").canonical,
+                         "SUPER + CTRL + ALT")
         # No modifier at all and an unknown modifier are both invalid.
         self.assertFalse(self.check("BIND_MODIFIERS", "").ok)
         self.assertFalse(self.check("BIND_MODIFIERS", "SUPER + HYPER").ok)
@@ -226,16 +229,140 @@ class PorcelainTests(unittest.TestCase):
         """The banner trigger is engine=missing."""
         self.assertTrue(porcelain.parse_status("engine=missing").engine_missing)
 
-    def test_describe_status_mentions_configured_tracking_when_it_differs(self):
-        """A margin request that falls back to edge is explained in the line."""
+    def test_status_line_is_friendly_and_names_the_engine_only_when_unusual(self):
+        """Plain words, no raw ids, no 'Engine: lua'."""
         status = porcelain.parse_status(
-            "engine=lua\nzoom=2\ntracking=margin\ntracking_effective=edge\nfilter=invert\n"
+            "engine=lua\nzoom=1.50\ntracking=centered\ntracking_effective=centered\n"
+            "filter=smart-invert\nfilter_active=on\n"
         )
-        line = porcelain.describe_status(status)
-        self.assertIn("Zoom 2.00×", line)
-        # The line must reveal that the plugin is missing.
-        self.assertIn("edge (configured: margin)", line)
-        self.assertIn("Engine: lua", line)
+        self.assertEqual(porcelain.describe_status(status),
+                         "Zoom 1.5× · Pointer centered · Smart invert on")
+        # An inactive filter is just "off"; a whole number loses its decimals.
+        off = porcelain.parse_status("engine=lua\nzoom=2.00\ntracking=edge\nfilter_active=off")
+        self.assertEqual(porcelain.describe_status(off),
+                         "Zoom 2× · View moves at the edge · Color filter off")
+        legacy = porcelain.parse_status("engine=legacy\nhyprland=0.56.2\nzoom=1\ntracking=edge")
+        self.assertIn("Compatibility mode (limited)", porcelain.describe_status(legacy))
+
+    def test_status_line_before_the_first_answer_and_without_a_compositor(self):
+        """'Checking…' is neutral; an unreachable Hyprland is told apart from setup."""
+        self.assertEqual(porcelain.describe_status(porcelain.EngineStatus(), received=False),
+                         "Checking…")
+        # An unreachable compositor is told apart from a missing setup.
+        gone = porcelain.parse_status("engine=missing\nhyprland=unknown")
+        self.assertEqual(gone.state, porcelain.STATE_NO_HYPRLAND)
+        self.assertEqual(porcelain.describe_status(gone), "Hyprland is not reachable")
+        # With a reachable compositor the same answer means: set it up.
+        unset = porcelain.parse_status("engine=missing\nhyprland=0.56.2")
+        self.assertEqual(unset.state, porcelain.STATE_NEEDS_SETUP)
+
+    def test_engine_states(self):
+        """Every engine answer maps to exactly one window state."""
+        states = {
+            "engine=lua": porcelain.STATE_READY,
+            "engine=legacy\nhyprland=0.56.2": porcelain.STATE_COMPATIBILITY,
+            "": porcelain.STATE_NO_ZOOMCTL,
+        }
+        for text, expected in states.items():
+            self.assertEqual(porcelain.parse_status(text).state, expected, text)
+
+    def test_tracking_notice_only_when_hyprland_differs_and_in_plain_words(self):
+        """Margin without the plugin gets ONE notice that offers the installation."""
+        base = "engine=lua\nhyprland=0.56.2\n"
+        missing = porcelain.parse_status(base + "tracking_effective=edge\nplugin=missing")
+        # Margin without the plugin offers the installation.
+        notice = porcelain.tracking_notice("margin", missing)
+        self.assertTrue(notice.needs_plugin)
+        self.assertIn("Edge with a fixed 5 % margin", notice.body)
+        # No raw identifiers in the sentence.
+        self.assertNotIn("tracking", notice.body)
+        # With the plugin loaded there is nothing to explain.
+        loaded = porcelain.parse_status(base + "tracking_effective=margin\nplugin=loaded")
+        self.assertIsNone(porcelain.tracking_notice("margin", loaded))
+        # Another mode that works as configured needs no words either.
+        centered = porcelain.parse_status(base + "tracking_effective=centered\nplugin=missing")
+        self.assertIsNone(porcelain.tracking_notice("centered", centered))
+        # Unknown state: nothing to explain yet.
+        self.assertIsNone(porcelain.tracking_notice("margin", porcelain.EngineStatus()))
+
+
+class MessageTests(unittest.TestCase):
+    """Plain-language mapping of zoomctl messages."""
+
+    def test_known_messages_become_plain_sentences_with_details(self):
+        """The prefix and the jargon are gone; the raw text stays as details."""
+        notice = messages.friendly_notice(
+            "zoomctl: saved, but the engine rejected the reload: error: unknown key"
+        )
+        # The jargon is replaced; the raw text stays as details.
+        self.assertEqual(notice.summary, "Saved, but Hyprland could not apply the change.")
+        self.assertIn("engine rejected the reload", notice.details)
+        # Offline notes are plain too.
+        offline = messages.friendly_notice("zoomctl: engine not reachable, saved only")
+        self.assertIn("Hyprland is not reachable", offline.summary)
+
+    def test_backup_notes_are_log_only(self):
+        """Path-heavy bookkeeping never becomes a toast."""
+        notice = messages.friendly_notice(
+            "zoomctl: backup of /home/u/hyprland.lua saved as /home/u/hyprland.lua.bak"
+        )
+        self.assertEqual(notice.summary, "")
+
+    def test_unknown_messages_lose_the_prefix_and_long_or_path_texts_are_hidden(self):
+        """Short text is shown capitalized, path-heavy or long text is replaced."""
+        self.assertEqual(messages.friendly_notice("zoomctl: something odd").summary,
+                         "Something odd")
+        # Path-heavy text is replaced by a generic sentence plus details.
+        long_text = "zoomctl: cannot read /etc/zoomctl/a/b/c because of a very strange reason"
+        notice = messages.friendly_notice(long_text)
+        # The raw text stays available.
+        self.assertEqual(notice.summary, "zoomctl reported a problem.")
+        self.assertIn("/etc/zoomctl", notice.details)
+
+    def test_zoom_range_rule_message_is_plain(self):
+        """The cross-field message of zoomctl is replaced by a sentence without key names."""
+        notice = messages.friendly_notice(
+            "zoomctl: ZOOM_MIN (5.00) <= ZOOM_RESET (1.00) <= ZOOM_MAX (10.00) must hold"
+        )
+        self.assertNotIn("ZOOM_", notice.summary)
+
+
+class CrossFieldTests(unittest.TestCase):
+    """The local MIN <= RESET <= MAX check with labels."""
+
+    def test_violations_name_the_settings_by_label(self):
+        """Min above reset is refused with both labels and the current value."""
+        schema = real_schema()
+        labels = {spec.key: spec.label for spec in schema.specs}
+        # The defaults are MIN 1, RESET 1, MAX 10.
+        config = schema.defaults()
+        message = values.check_zoom_order(labels, config, "ZOOM_MIN", "2.00")
+        self.assertEqual(message, "Minimum zoom (2.00) can't be above Reset zoom (1.00)")
+        # A change that keeps the order, and an unrelated key, pass.
+        self.assertEqual(values.check_zoom_order(labels, config, "ZOOM_MAX", "5.00"), "")
+        self.assertEqual(values.check_zoom_order(labels, config, "ZOOM_STEP", "0.5"), "")
+
+
+class LayoutTests(unittest.TestCase):
+    """The window size follows the text scale."""
+
+    def test_default_size_grows_with_text_and_stays_on_the_monitor(self):
+        """164 % text gets a bigger window; a small monitor caps it."""
+        normal = sizing.default_window_size(1.0, None)
+        large = sizing.default_window_size(1.64, None)
+        # Larger text gets a larger window in both directions.
+        self.assertGreater(large[0], normal[0])
+        self.assertGreater(large[1], normal[1])
+        # Text smaller than normal never shrinks below the base size.
+        self.assertEqual(sizing.default_window_size(0.8, None), normal)
+        # Only real screens limit the window: a tiny nested output is ignored.
+        self.assertEqual(sizing.smallest_usable_monitor([(342, 171), (3440, 1440), (1920, 1080)]),
+                         (1920, 1080))
+        # Without any real screen there is no limit at all.
+        self.assertIsNone(sizing.smallest_usable_monitor([(342, 171)]))
+        capped = sizing.default_window_size(1.64, (1280, 720))
+        self.assertLessEqual(capped[0], 1280 * 0.9)
+        self.assertLessEqual(capped[1], 720 * 0.9)
 
 
 class PresentationTests(unittest.TestCase):
@@ -266,6 +393,24 @@ class PresentationTests(unittest.TestCase):
                          "Scroll down zooms in")
         self.assertEqual(presentation.option_label("BIND_SCROLL_DIRECTION", "up-in"),
                          "Scroll up zooms in")
+
+    def test_every_choice_list_has_a_question_and_units_are_declared(self):
+        """Lists need a heading that is not the page title; ms settings convert."""
+        for key in presentation.CHOICE_LIST_KEYS:
+            self.assertIn(key, presentation.CHOICE_QUESTIONS)
+        # Units are converted where people think in other units.
+        unit = presentation.display_unit("ZOOM_ANIMATION_SPEED")
+        self.assertEqual((unit.suffix, unit.factor), ("ms", 100.0))
+        self.assertIsNone(presentation.display_unit("ZOOM_STEP"))
+
+    def test_us_english_everywhere(self):
+        """E13: no British spellings in titles and option texts."""
+        texts = [info.title + info.description for info in presentation.GROUPS]
+        for options in presentation.OPTION_TEXT.values():
+            # Every option label and explanation is checked.
+            texts += [label + text for label, text in options.values()]
+        for word in ("colour", "Colour", "Centred", "recognis", "Behaviour"):
+            self.assertFalse([t for t in texts if word in t], word)
 
     def test_every_schema_enum_option_has_hand_written_text(self):
         """New schema options without presentation text must be noticed here."""

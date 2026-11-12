@@ -164,20 +164,22 @@ test_status() {
   run_zoomctl status --porcelain
   assert_status 0 "status: works without a compositor"
   assert_eq "$c6_keys" "$(cut -d= -f1 <<< "$ZC_OUT" | tr '\n' ' ' | sed 's/ $//')" "status: exact C6 key set and order"
-  assert_contains "$ZC_OUT" $'engine=missing\n' "status: engine=missing when Hyprland is unreachable"
+  assert_contains "$ZC_OUT" $'engine=unreachable\n' "status: engine=unreachable without a compositor"
   assert_contains "$ZC_OUT" $'zoom=1.00\n' "status: neutral zoom without compositor"
   set_fake_mode lua-no-engine
   printf '2.500000\n' > "$FAKE_DIR/zoom"
   mkdir -p "$ZC_STATE_DIR"
   printf 'saved_zoom=3.00\n' > "$ZC_STATE_DIR/state"
   run_zoomctl status --porcelain
-  assert_contains "$ZC_OUT" $'engine=legacy\n' "status: engine=legacy without the engine"
+  assert_contains "$ZC_OUT" $'engine=missing\n' "status: engine=missing on a Lua config without the engine"
   assert_contains "$ZC_OUT" $'zoom=2.50\n' "status: live zoom read from Hyprland"
   assert_contains "$ZC_OUT" $'saved_zoom=3.00\n' "status: saved zoom from the state file"
   assert_contains "$ZC_OUT" $'hyprland=0.56.2\n' "status: Hyprland version"
   assert_contains "$ZC_OUT" $'plugin=missing\n' "status: plugin missing"
   assert_contains "$ZC_OUT" $'filter_active=off\n' "status: filter off on the fallback path"
   set_fake_mode hyprlang
+  run_zoomctl status --porcelain
+  assert_contains "$ZC_OUT" $'engine=legacy\n' "status: engine=legacy on a hyprlang config"
   run_zoomctl set tracking margin
   run_zoomctl status --porcelain
   assert_contains "$ZC_OUT" $'tracking=margin\ntracking_effective=edge\n' "status: margin degrades to edge"

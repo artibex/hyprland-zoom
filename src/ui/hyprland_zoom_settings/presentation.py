@@ -1,8 +1,9 @@
-"""Presentation-only tables: page titles/icons, option labels and explanations.
+"""Presentation-only tables: page titles/icons, option labels, explanations, units and phrases.
 
 Keys, types, defaults and ranges come from the schema (contract E3); this module only decides
-how a page or an enum option is *worded* and which enum settings are drawn as choice lists.
-Anything not listed here falls back to a generated label, so a new schema entry still works.
+how a page, an enum option or a number is *worded* and which enum settings are drawn as
+choice lists. Anything not listed here falls back to a generated label, so a new schema
+entry still works. All user-visible text is US English (contract E13).
 """
 
 # dataclasses keep the tables typed; typing documents the tuple shapes.
@@ -18,14 +19,32 @@ class GroupInfo:
         group: Group id from the schema.
         title: Page title.
         icon: Symbolic icon name from the standard icon theme.
-        description: One-sentence page introduction.
+        description: One-sentence summary (tooltip and accessible description of the page).
     """
 
     group: str
     title: str
     icon: str
-    # Shown under the page title; may be empty for unknown groups.
+    # Shown as tooltip of the sidebar entry; may be empty for unknown groups.
     description: str
+
+
+@dataclass(frozen=True)
+class DisplayUnit:
+    """How a numeric setting is shown when its stored unit is not the one people think in.
+
+    Attributes:
+        suffix: Unit text appended to the row title, for example ``ms``.
+        factor: Displayed number = stored number * factor (and the reverse when saving).
+        digits: Decimal places shown, or None to use the schema precision.
+        step: Spin step in displayed units, or None for the default step.
+    """
+
+    suffix: str
+    factor: float = 1.0
+    # None means: use the schema precision and the default step.
+    digits: Optional[int] = None
+    step: Optional[float] = None
 
 
 # Page order in the window; ids the schema adds later are appended after these.
@@ -34,21 +53,31 @@ GROUPS: Tuple[GroupInfo, ...] = (
               "How far and how fast the screen magnifies."),
     GroupInfo("tracking", "Pointer tracking", "input-mouse-symbolic",
               "How the zoomed view follows the mouse pointer."),
-    GroupInfo("filter", "Colour filters", "applications-graphics-symbolic",
+    GroupInfo("filter", "Color filters", "applications-graphics-symbolic",
               "Invert, darken or tint the screen for comfort and contrast."),
     GroupInfo("shortcuts", "Shortcuts", "input-keyboard-symbolic",
               "Keys and mouse actions that control the zoom."),
     GroupInfo("advanced", "Advanced", "preferences-other-symbolic",
-              "Behaviour that rarely needs changing."),
+              "Behavior that rarely needs changing."),
 )
 
 # Enum settings drawn as a list of explained choices instead of a drop-down.
-CHOICE_LIST_KEYS = frozenset({"ZOOM_TRACKING", "FILTER"})
+CHOICE_LIST_KEYS = frozenset(
+    {"ZOOM_TRACKING", "FILTER", "ZOOM_STEP_MODE", "BIND_SCROLL_DIRECTION"}
+)
+
+# The short question above a choice list (never the page title, never the schema help).
+CHOICE_QUESTIONS: Dict[str, str] = {
+    "ZOOM_TRACKING": "How to follow the pointer?",
+    "FILTER": "Which color filter?",
+    "ZOOM_STEP_MODE": "How does a step work?",
+    "BIND_SCROLL_DIRECTION": "Which direction zooms in?",
+}
 
 # Short label and one-sentence explanation of every known enum option, per setting key.
 OPTION_TEXT: Dict[str, Dict[str, Tuple[str, str]]] = {
     "ZOOM_TRACKING": {
-        "centered": ("Centred", "The pointer stays in the middle of the zoomed view."),
+        "centered": ("Centered", "The pointer stays in the middle of the zoomed view."),
         "edge": ("Edge", "The view moves when the pointer reaches the edge of the screen."),
         "margin": (
             "Margin",
@@ -65,22 +94,37 @@ OPTION_TEXT: Dict[str, Dict[str, Tuple[str, str]]] = {
         "up-in": ("Scroll up zooms in", "Scrolling away from you zooms in."),
     },
     "FILTER": {
-        "invert": ("Invert", "Swaps light and dark, colours become their opposites."),
+        "invert": ("Invert", "Swaps light and dark; colors become their opposites."),
         "smart-invert": (
             "Smart invert",
-            "Dark mode for bright screens; colours stay recognisable.",
+            "Dark mode for bright screens; colors stay recognizable.",
         ),
-        "grayscale": ("Grayscale", "Removes all colour."),
+        "grayscale": ("Grayscale", "Removes all color."),
         "grayscale-invert": ("Inverted grayscale", "Grayscale with light and dark swapped."),
         "high-contrast": ("High contrast", "Pushes light and dark apart for readability."),
-        "protanopia": ("Protanopia", "Colour transform for red-weak colour vision."),
-        "deuteranopia": ("Deuteranopia", "Colour transform for green-weak colour vision."),
-        "tritanopia": ("Tritanopia", "Colour transform for blue-weak colour vision."),
+        "protanopia": ("Protanopia", "Color transform for red-weak color vision."),
+        "deuteranopia": ("Deuteranopia", "Color transform for green-weak color vision."),
+        "tritanopia": ("Tritanopia", "Color transform for blue-weak color vision."),
     },
 }
 
-# Enum option that needs the optional hyprzoom plugin to behave as described.
-PLUGIN_ONLY_OPTIONS = {("ZOOM_TRACKING", "margin")}
+# Status-line wording of the effective tracking mode.
+TRACKING_PHRASES: Dict[str, str] = {
+    "centered": "Pointer centered",
+    "edge": "View moves at the edge",
+    "margin": "View moves at a margin",
+    "follow": "View follows the pointer",
+}
+
+# What Hyprland does by itself when a mode cannot be used (for the plugin notice).
+FALLBACK_NOTES: Dict[str, str] = {"edge": " with a fixed 5 % margin"}
+
+# Settings whose stored unit differs from the unit shown to people.
+DISPLAY_UNITS: Dict[str, DisplayUnit] = {
+    # Stored in tenths of a second; people think in milliseconds.
+    "ZOOM_ANIMATION_SPEED": DisplayUnit("ms", factor=100.0, digits=0, step=10.0),
+    "SCROLL_EVENT_DELAY_MS": DisplayUnit("ms"),
+}
 
 
 def ordered_groups(schema_group_ids: List[str]) -> List[GroupInfo]:
@@ -97,11 +141,11 @@ def ordered_groups(schema_group_ids: List[str]) -> List[GroupInfo]:
     # A group the schema introduced after this app was written still gets a page.
     for group in schema_group_ids:
         if group not in known:
-            ordered.append(GroupInfo(group, humanise(group), "preferences-other-symbolic", ""))
+            ordered.append(GroupInfo(group, humanize(group), "preferences-other-symbolic", ""))
     return ordered
 
 
-def humanise(identifier: str) -> str:
+def humanize(identifier: str) -> str:
     """Turn an identifier into a readable label.
 
     Args:
@@ -127,7 +171,7 @@ def option_label(key: str, option: str) -> str:
     """
     # Unknown options (new schema entries) degrade to a generated label.
     text = OPTION_TEXT.get(key, {}).get(option)
-    return text[0] if text else humanise(option)
+    return text[0] if text else humanize(option)
 
 
 def option_description(key: str, option: str) -> Optional[str]:
@@ -143,3 +187,30 @@ def option_description(key: str, option: str) -> Optional[str]:
     # Options without a hand-written text simply show no subtitle.
     text = OPTION_TEXT.get(key, {}).get(option)
     return text[1] if text else None
+
+
+def choice_question(key: str, fallback: str) -> str:
+    """Heading of a choice list.
+
+    Args:
+        key: Schema key of the enum setting.
+        fallback: Text used when no question was written (the schema label).
+
+    Returns:
+        The short question, or the fallback.
+    """
+    # A missing question degrades to the schema label, never to an empty heading.
+    return CHOICE_QUESTIONS.get(key, fallback)
+
+
+def display_unit(key: str) -> Optional[DisplayUnit]:
+    """Look up how a numeric setting is displayed.
+
+    Args:
+        key: Schema key.
+
+    Returns:
+        The unit description, or None when the stored form is shown as it is.
+    """
+    # Most settings need no conversion.
+    return DISPLAY_UNITS.get(key)

@@ -8,7 +8,7 @@ input from spawning a process and gives the widgets one place for formatting rul
 import math
 import re
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 # Kind constants decide which check a setting gets.
 from .schema import (
@@ -25,7 +25,8 @@ BOOL_ON = "on"
 BOOL_OFF = "off"
 _TRUE_ALIASES = {"on", "1", "true", "yes"}
 _FALSE_ALIASES = {"off", "0", "false", "no"}
-# Modifier names in canonical order, with the aliases that map onto them.
+# Modifier names in zoomctl's canonical order (validate.sh), with the aliases that map onto
+# them; one order everywhere keeps a saved value identical to what zoomctl would write.
 MODIFIER_ORDER = ("SUPER", "CTRL", "ALT", "SHIFT")
 _MODIFIER_ALIASES = {
     "SUPER": "SUPER", "WIN": "SUPER", "META": "SUPER", "MOD4": "SUPER",
@@ -264,3 +265,41 @@ def float_digits(spec: SettingSpec) -> int:
     """
     # Matches the canonical form so the widget never shows more precision than is stored.
     return 0 if spec.kind == KIND_INT else 2
+
+
+# Settings of the cross-field rule MIN <= RESET <= MAX (contract C1), lowest first.
+ZOOM_ORDER_KEYS = ("ZOOM_MIN", "ZOOM_RESET", "ZOOM_MAX")
+
+
+def check_zoom_order(
+    labels: Dict[str, str], values: Dict[str, str], key: str, canonical: str
+) -> str:
+    """Check the rule ``ZOOM_MIN <= ZOOM_RESET <= ZOOM_MAX`` for a pending change.
+
+    Args:
+        labels: Human label per schema key (for the message).
+        values: Current effective configuration.
+        key: Setting being changed.
+        canonical: Its new canonical value.
+
+    Returns:
+        An empty string when the rule holds (or the change is unrelated), otherwise a
+        sentence naming both settings by their labels.
+    """
+    # Only the three zoom limits take part in the rule.
+    if key not in ZOOM_ORDER_KEYS:
+        return ""
+    candidate = {**values, key: canonical}
+    try:
+        low, middle, high = (float(candidate[name]) for name in ZOOM_ORDER_KEYS)
+    except (KeyError, ValueError):
+        # Unreadable neighbours cannot be judged here; zoomctl stays the authority.
+        return ""
+    pairs = ((ZOOM_ORDER_KEYS[0], low, ZOOM_ORDER_KEYS[1], middle),
+             (ZOOM_ORDER_KEYS[1], middle, ZOOM_ORDER_KEYS[2], high))
+    for lower_key, lower, upper_key, upper in pairs:
+        # The first violated pair is reported with its current values.
+        if lower > upper:
+            return (f"{labels[lower_key]} ({format_float(lower)}) can't be above "
+                    f"{labels[upper_key]} ({format_float(upper)})")
+    return ""

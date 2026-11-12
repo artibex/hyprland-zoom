@@ -1,7 +1,7 @@
 """Settings pages: one ``Adw.PreferencesPage`` per schema group, generated from the schema.
 
-Only presentation is hand-tuned here: the tracking page explains the plugin dependency and
-shows the margin slider only for the margin mode, the advanced page carries "Restore defaults".
+Only presentation is hand-tuned here: the tracking page shows ONE notice (and locks the margin
+slider) while the margin mode lacks its plugin, the advanced page carries "Restore defaults".
 """
 
 # typing documents the mappings and lists.
@@ -13,18 +13,19 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk  # noqa: E402 - gi.require_version must run first
 
-from .constants import PROJECT_URL  # noqa: E402
-from .porcelain import EngineStatus  # noqa: E402
-from .presentation import GroupInfo, option_description, ordered_groups  # noqa: E402
-from .rows import ChoiceListRow, RowContext, SettingRow, build_setting_row  # noqa: E402
+from . import dialogs  # noqa: E402
+from .porcelain import EngineStatus, TrackingNotice, tracking_notice  # noqa: E402
+from .presentation import GroupInfo, ordered_groups  # noqa: E402
+from .row_base import RowContext, SettingRow, StackedRow  # noqa: E402
+from .rows import build_setting_row  # noqa: E402
 from .schema import SettingSpec  # noqa: E402
 
 # Schema keys the tracking page treats specially.
 TRACKING_KEY = "ZOOM_TRACKING"
 EDGE_MARGIN_KEY = "ZOOM_EDGE_MARGIN"
 MARGIN_MODE = "margin"
-# Where the plugin installation is described (docs/plugin.md in the project repository).
-PLUGIN_DOCS_URL = f"{PROJECT_URL}/blob/main/docs/plugin.md"
+# Why the margin slider is locked (shown in place of its help text).
+MARGIN_LOCKED_REASON = "Needs the hyprzoom plugin. See the notice above."
 
 
 class SettingsPage(Adw.PreferencesPage):
@@ -41,8 +42,10 @@ class SettingsPage(Adw.PreferencesPage):
         Returns:
             None.
         """
-        super().__init__(title=info.title, icon_name=info.icon, description=info.description)
+        # The page has no intro text: the sidebar and the rows already say what it is.
+        super().__init__(title=info.title, icon_name=info.icon)
         self.group_id = info.group
+        self.summary = info.description
         # Rows by schema key, and the preferences group that holds each row (for hiding).
         self.rows: Dict[str, SettingRow] = {}
         self.group_of: Dict[str, Adw.PreferencesGroup] = {}
@@ -114,10 +117,10 @@ class SettingsPage(Adw.PreferencesPage):
 
 
 class TrackingPage(SettingsPage):
-    """Tracking modes as explained choices, margin slider only for the margin mode."""
+    """Tracking modes as explained choices; one notice and a locked slider without the plugin."""
 
     def __init__(self, info: GroupInfo, specs: List[SettingSpec], context: RowContext) -> None:
-        """Build the rows and the plugin hint group.
+        """Build the rows and the notice group between the choices and the margin slider.
 
         Args:
             info: Page title, icon and description.
@@ -128,22 +131,26 @@ class TrackingPage(SettingsPage):
             None.
         """
         super().__init__(info, specs, context)
-        self.plugin_row = Adw.ActionRow()
-        self.plugin_row.add_prefix(Gtk.Image(icon_name="dialog-information-symbolic"))
-        # The link opens the installation notes in the browser.
-        docs_link = Gtk.LinkButton(uri=PLUGIN_DOCS_URL, label="docs/plugin.md")
-        docs_link.set_valign(Gtk.Align.CENTER)
-        self.plugin_row.add_suffix(docs_link)
-        # Shows what Hyprland really does, which may differ from the setting.
-        self.effective_row = Adw.ActionRow(title="Active tracking mode")
-        group = Adw.PreferencesGroup(title="Margin mode")
-        group.add(self.plugin_row)
-        # Both rows share one titled group below the choices.
-        group.add(self.effective_row)
-        self.add(group)
+        # The button opens the installation help dialog.
+        self.install_button = Gtk.Button(label="How to install…", halign=Gtk.Align.START)
+        self.install_button.connect(
+            "clicked", lambda button: dialogs.show_plugin_help(button)
+        )
+        # One notice slot (title, body, button) that is filled and shown on demand.
+        self._notice = StackedRow("", "", self.install_button)
+        self.notice_group = Adw.PreferencesGroup(visible=False)
+        self.notice_group.add(self._notice.widget)
+        # The notice sits right under the choices, above the margin slider.
+        margin_group = self.group_of.get(EDGE_MARGIN_KEY)
+        if margin_group is not None:
+            self.remove(margin_group)
+        # The margin group is re-added after the notice.
+        self.add(self.notice_group)
+        if margin_group is not None:
+            self.add(margin_group)
 
     def refine(self, values: Dict[str, str], status: EngineStatus) -> None:
-        """Show or hide the margin slider and describe the plugin state.
+        """Show or hide the margin slider and the notice.
 
         Args:
             values: Effective configuration.
@@ -153,41 +160,33 @@ class TrackingPage(SettingsPage):
             None.
         """
         # The margin only matters in margin mode, so the slider is hidden otherwise.
-        margin_selected = values.get(TRACKING_KEY) == MARGIN_MODE
+        configured = values.get(TRACKING_KEY, "")
+        margin_selected = configured == MARGIN_MODE
         if EDGE_MARGIN_KEY in self.rows:
             self.rows[EDGE_MARGIN_KEY].set_visible(margin_selected)
             self.group_of[EDGE_MARGIN_KEY].set_visible(margin_selected)
-        # The plugin text and the margin option follow the live status.
-        self._describe_plugin(status)
-        self.effective_row.set_subtitle(status.tracking_effective or "unknown")
+            # Without the plugin the slider would silently do nothing, so it is locked.
+            locked = not status.plugin_loaded
+            self.rows[EDGE_MARGIN_KEY].set_reason(MARGIN_LOCKED_REASON if locked else None)
+        self._show_notice(tracking_notice(configured, status))
 
-    def _describe_plugin(self, status: EngineStatus) -> None:
-        """Explain whether margin mode is available and annotate its option.
+    def _show_notice(self, notice: Optional[TrackingNotice]) -> None:
+        """Fill and show the single notice, or hide it.
 
         Args:
-            status: Current engine status.
+            notice: Result of ``tracking_notice``.
 
         Returns:
             None.
         """
-        margin_text = option_description(TRACKING_KEY, MARGIN_MODE) or ""
-        if status.plugin_loaded:
-            self.plugin_row.set_title("hyprzoom plugin detected")
-            # A loaded plugin needs no warning, only a confirmation.
-            self.plugin_row.set_subtitle("Margin mode is available.")
-            note = margin_text
-        else:
-            self.plugin_row.set_title("hyprzoom plugin not detected")
-            # Explains the fallback so the missing option is not a mystery.
-            self.plugin_row.set_subtitle(
-                "Margin mode needs the optional hyprzoom plugin. Without it Hyprland keeps its "
-                "fixed 5 % edge margin. Installation is described in:"
-            )
-            note = f"{margin_text} Needs the hyprzoom plugin (not detected)."
-        choice = self.rows.get(TRACKING_KEY)
-        # The option subtitle carries the warning next to the choice itself.
-        if isinstance(choice, ChoiceListRow):
-            choice.set_option_subtitle(MARGIN_MODE, note)
+        self.notice_group.set_visible(notice is not None)
+        if notice is None:
+            return
+        # The texts come from the notice; the install button only fits the plugin case.
+        self._notice.title_label.set_label(notice.title)
+        self._notice.subtitle_label.set_label(notice.body)
+        # Only the missing plugin can be fixed by installing something.
+        self.install_button.set_visible(notice.needs_plugin)
 
 
 class AdvancedPage(SettingsPage):
@@ -206,18 +205,18 @@ class AdvancedPage(SettingsPage):
         """
         super().__init__(info, specs, context)
         restore_button = Gtk.Button(
-            label="Restore defaults…", valign=Gtk.Align.CENTER, action_name="win.restore-defaults"
+            label="Restore defaults…", halign=Gtk.Align.START, action_name="win.restore-defaults"
         )
         restore_button.add_css_class("destructive-action")
-        # One row with an explanation and the destructive button.
-        row = Adw.ActionRow(
-            title="Restore defaults",
-            subtitle="Removes all your changes and returns every setting to its default.",
+        # Title, explanation and the destructive button stacked, so they fit any width.
+        row = StackedRow(
+            "Restore defaults",
+            "Removes all your changes and returns every setting to its default.",
+            restore_button,
         )
-        row.add_suffix(restore_button)
-        group = Adw.PreferencesGroup(title="Reset")
+        group = Adw.PreferencesGroup()
         # The reset sits in its own group, apart from the ordinary settings.
-        group.add(row)
+        group.add(row.widget)
         self.add(group)
 
 

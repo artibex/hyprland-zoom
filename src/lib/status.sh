@@ -14,12 +14,17 @@ zoomctl_status_effective_tracking() {
 
 # zoomctl_status_engine_word — the C6 engine value when the engine itself is not answering.
 # Args:    none
-# Returns: 0 always; stdout: legacy (Hyprland reachable, fallback path) or missing
+# Returns: 0 always; stdout: missing (Lua config, engine not loaded), legacy (hyprlang
+#          config, bash fallback) or unreachable (no compositor answering)
 # Globals: reads/writes ZOOMCTL_PROBE
 zoomctl_status_engine_word() {
   zoomctl_hyprland_probe
-  # Without a reachable compositor there is nothing to fall back on.
-  [ "$ZOOMCTL_PROBE" = 'unreachable' ] && printf 'missing\n' || printf 'legacy\n'
+  # The probe already distinguishes the three cases; only the words differ.
+  case "$ZOOMCTL_PROBE" in
+    unreachable) printf 'unreachable\n' ;;  # no Hyprland session to talk to
+    lua-no-engine) printf 'missing\n' ;;    # `zoomctl setup` + reload would load it
+    *) printf 'legacy\n' ;;                 # hyprlang config: the bash fallback acts
+  esac
 }
 
 # zoomctl_status_plugin_word — report whether the optional hyprzoom plugin is loaded.

@@ -5,7 +5,8 @@ changes settings only through ``zoomctl set``). Widgets listen to its signals an
 their own copy of the truth: a rejected change simply makes them re-read ``values``.
 """
 
-# typing documents the queue shapes; GObject provides the signal machinery.
+# logging keeps bookkeeping notes out of the user's way; typing documents the queue shapes.
+import logging
 from typing import Callable, Dict, List, Optional, Tuple
 
 import gi
@@ -14,9 +15,13 @@ gi.require_version("GObject", "2.0")
 from gi.repository import GLib, GObject  # noqa: E402 - gi.require_version must run first
 
 from .backend import CommandResult, ZoomctlClient  # noqa: E402
+from .messages import friendly_notice  # noqa: E402
 from .porcelain import EngineStatus, parse_key_values, parse_status  # noqa: E402
 from .schema import SettingsSchema  # noqa: E402
-from .values import ValueCheck, check_value  # noqa: E402
+from .values import ValueCheck, check_value, check_zoom_order  # noqa: E402
+
+# Notes that are only bookkeeping (backups, paths) go to the log, not to a toast.
+LOG = logging.getLogger(__name__)
 
 # Called with True when a change was applied, False when it was rejected.
 DoneCallback = Callable[[bool], None]
@@ -32,10 +37,10 @@ class SettingsController(GObject.Object):
         "config-changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
         # A new engine status arrived: re-read ``status``.
         "status-changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
-        # Something failed; the argument is a message fit for a toast.
-        "error": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
+        # Something failed; arguments: a plain sentence for a toast and the technical details.
+        "error": (GObject.SignalFlags.RUN_FIRST, None, (str, str)),
         # A call succeeded but zoomctl added a note (e.g. saved while the engine is offline).
-        "info": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
+        "info": (GObject.SignalFlags.RUN_FIRST, None, (str, str)),
     }
 
     def __init__(self, schema: SettingsSchema, client: ZoomctlClient) -> None:
@@ -64,6 +69,8 @@ class SettingsController(GObject.Object):
         self._status_in_flight = False
         # False until the first status answer arrived, so the banner does not flash at startup.
         self.status_received = False
+        # Raw text of the last configuration answer: an unchanged answer redraws nothing.
+        self._config_text: Optional[str] = None
 
     # ----- reading ------------------------------------------------------------------------
 
@@ -96,10 +103,13 @@ class SettingsController(GObject.Object):
             reported = parse_key_values(result.stdout)
             known = {key: text for key, text in reported.items() if key in self.schema.by_key}
             self.values = {**self.values, **known}
-            self.emit("config-changed")
+            # The periodic re-read must not redraw (and disturb) the pages without news.
+            if result.stdout != self._config_text:
+                self._config_text = result.stdout
+                self.emit("config-changed")
         else:
             # A failed read keeps the old values and tells the user.
-            self.emit("error", f"Could not read the configuration: {result.message}")
+            self._emit_problem(f"Could not read the configuration: {result.message}")
         # Run the deferred refresh, if one was requested in the meantime.
         if self._config_refresh_again:
             self._config_refresh_again = False
@@ -153,10 +163,10 @@ class SettingsController(GObject.Object):
             The local validation verdict; when not ok nothing is sent and the widgets are
             told to re-read the effective value.
         """
-        verdict = check_value(self.schema.by_key[key], text)
+        verdict = self._check_change(key, text)
         if not verdict.ok:
             # Invalid input never reaches zoomctl; widgets revert via the config-changed signal.
-            self.emit("error", verdict.error)
+            self.emit("error", verdict.error, "")
             self.emit("config-changed")
             if on_done:
                 self._call_later(on_done, False)
@@ -167,6 +177,54 @@ class SettingsController(GObject.Object):
         self._queue[key] = (verdict.canonical, waiting + ([on_done] if on_done else []))
         self._pump_queue()
         return verdict
+
+    def _check_change(self, key: str, text: str) -> ValueCheck:
+        """Validate one change on its own and against the settings it depends on.
+
+        Args:
+            key: Schema key.
+            text: Candidate value.
+
+        Returns:
+            The verdict; ``error`` names the settings by their labels.
+        """
+        verdict = check_value(self.schema.by_key[key], text)
+        if not verdict.ok:
+            return verdict
+        # Cross-field rules are checked here so the message uses labels, not key names.
+        labels = {spec.key: spec.label for spec in self.schema.specs}
+        conflict = check_zoom_order(labels, self.values, key, verdict.canonical)
+        return ValueCheck(False, error=conflict) if conflict else verdict
+
+    def _emit_problem(self, raw: str) -> None:
+        """Report a failure as a plain sentence plus details.
+
+        Args:
+            raw: Raw zoomctl text.
+
+        Returns:
+            None.
+        """
+        # The mapping lives in one module so every failure reads the same way.
+        notice = friendly_notice(raw)
+        self.emit("error", notice.summary, notice.details if notice.details != notice.summary
+                  else "")
+
+    def _emit_note(self, raw: str) -> None:
+        """Report a note of a successful call, or only log it when it is bookkeeping.
+
+        Args:
+            raw: Raw zoomctl text.
+
+        Returns:
+            None.
+        """
+        notice = friendly_notice(raw)
+        # An empty summary marks notes the user does not need (backup paths and the like).
+        if not notice.summary:
+            LOG.info("zoomctl: %s", notice.details)
+            return
+        self.emit("info", notice.summary, notice.details)
 
     @staticmethod
     def _call_later(callback: DoneCallback, flag: bool) -> None:
@@ -229,8 +287,8 @@ class SettingsController(GObject.Object):
             # An offline engine still saves the value, but zoomctl explains it on stderr.
             self._report_note(result)
         else:
-            # The first stderr line of zoomctl becomes the toast.
-            self.emit("error", result.message)
+            # The first stderr line of zoomctl becomes the toast, in plain words.
+            self._emit_problem(result.message)
         # Success updates dependent widgets; failure makes them revert to the old value.
         self.emit("config-changed")
         for callback in waiting:
@@ -266,7 +324,7 @@ class SettingsController(GObject.Object):
             """
             # Every caller gets the same error reporting without repeating it.
             if not result.ok:
-                self.emit("error", result.message)
+                self._emit_problem(result.message)
             self._report_note(result)
             if on_done:
                 # The caller sees the result after the user has been told about it.
@@ -286,7 +344,7 @@ class SettingsController(GObject.Object):
         """
         # Only notes of successful calls are info; failures are reported as errors elsewhere.
         if result.info_message:
-            self.emit("info", result.info_message)
+            self._emit_note(result.info_message)
 
     def reset_config(self, on_done: Optional[DoneCallback] = None) -> None:
         """Delete all user overrides (``zoomctl reset-config``) and reload the values.

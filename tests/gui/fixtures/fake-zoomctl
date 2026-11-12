@@ -170,13 +170,16 @@ def command_zoom(arguments):
     """Record the new zoom level in the status.
 
     Args:
-        arguments: ``[factor]``.
+        arguments: ``[factor]`` or ``[factor, "--transient"]``.
 
     Returns:
         Never returns.
     """
     status = read_json("status.json", {})
     status["zoom"] = arguments[0]
+    # Like the real CLI: only a non-transient zoom becomes the toggle's remembered level.
+    if "--transient" not in arguments[1:]:
+        status["saved_zoom"] = arguments[0]
     write_json("status.json", status)
     # Success prints nothing, like the real set.
     emit()
@@ -202,6 +205,22 @@ def command_preview(arguments):
     emit()
 
 
+def command_filter(arguments):
+    """Switch the live filter on or off in the status.
+
+    Args:
+        arguments: ``["on"]`` or ``["off"]``.
+
+    Returns:
+        Never returns.
+    """
+    status = read_json("status.json", {})
+    status["filter_active"] = arguments[0] if arguments else "on"
+    write_json("status.json", status)
+    # Success prints nothing, like the real command.
+    emit()
+
+
 def dispatch(argv):
     """Run the built-in behaviour for a command.
 
@@ -222,6 +241,9 @@ def dispatch(argv):
         command_set(rest)
     if command == "zoom":
         command_zoom(rest)
+    # filter on/off changes the live state only; the config is written by set.
+    if command == "filter":
+        command_filter(rest)
     # preview records or clears the override text.
     if command == "preview":
         command_preview(rest)
@@ -234,6 +256,22 @@ def dispatch(argv):
         write_json("status.json", {**read_json("status.json", {}), "engine": "lua"})
         emit("engine wired\n")
     emit(stderr=f"zoomctl: unknown command '{command}'\n", code=2)
+
+
+def apply_side_effects(argv):
+    """Run the built-in command for its state change only, ignoring its own exit.
+
+    Args:
+        argv: Arguments after the program name.
+
+    Returns:
+        None.
+    """
+    # dispatch always ends in sys.exit; the exit is swallowed so the canned answer follows.
+    try:
+        dispatch(argv)
+    except SystemExit:
+        pass
 
 
 def main():
@@ -250,6 +288,9 @@ def main():
     if override is not None:
         # A canned sleep lets tests provoke the client timeout.
         time.sleep(override.get("sleep", 0))
+        # "apply" runs the built-in command first, then fails: a partly applied refusal.
+        if override.get("apply"):
+            apply_side_effects(argv)
         emit(override.get("stdout", ""), override.get("stderr", ""), override.get("rc", 0))
     dispatch(argv)
 

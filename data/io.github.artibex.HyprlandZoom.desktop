@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
-Name=Zoom Settings
-GenericName=Screen Magnifier Settings
+Name=Hyprland Zoom
+GenericName=Screen Magnifier
 Comment=Configure and try out the hyprland-zoom screen magnifier
 Exec=hyprland-zoom-settings
 Icon=io.github.artibex.HyprlandZoom
