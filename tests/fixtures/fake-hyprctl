@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# fake-hyprctl — stand-in for hyprctl in the zoomctl tests; never talks to a real compositor.
+#
+# Behaviour is steered by files in $FAKE_HYPRCTL_DIR (the script refuses to run without it):
+#   mode       engine | lua-no-engine | hyprlang | unreachable   (default: engine)
+#   zoom       current cursor:zoom_factor            (default: 1.000000)
+#   delay      current binds:scroll_event_delay      (default: 300)
+#   status     text answered to `repl 'return HyprZoom.status()'`
+#   plugins    text answered to `plugin list`       (default: no plugins loaded)
+#   binds      text answered to `binds`
+#   eval_error when present, HyprZoom.* evals fail with this text (engine mode)
+# Every call is appended to calls.log as one line: the arguments joined by single blanks.
+# FAKE_HYPRCTL_LATENCY (seconds) delays zoom reads/writes so races become observable.
+
+set -u
+
+# fake_read — print a state file or a default.
+# Args:    $1 file name inside the state dir; $2 default
+# Returns: 0 always; stdout: file content or the default
+# Globals: reads FAKE_HYPRCTL_DIR
+fake_read() {
+  # A missing file means "never configured", so the default applies.
+  if [ -r "$FAKE_HYPRCTL_DIR/$1" ]; then
+    cat -- "$FAKE_HYPRCTL_DIR/$1"
+  else
+    printf '%s\n' "$2"
+  fi
+}
+
+# fake_latency — sleep for the configured latency to widen race windows.
+# Args:    none
+# Returns: 0 always
+# Globals: reads FAKE_HYPRCTL_LATENCY
+fake_latency() {
+  # No latency configured means no sleep.
+  [ -z "${FAKE_HYPRCTL_LATENCY:-}" ] || sleep "$FAKE_HYPRCTL_LATENCY"
+}
+
+# fake_refuse_legacy — answer what hyprlang Hyprland answers to Lua-only requests.
+# Args:    none
+# Returns: 0 always; stdout: the refusal text
+# Globals: none
+fake_refuse_legacy() {
+  # Real Hyprland prints this with exit status 0, which the CLI must cope with.
+  printf 'eval is only supported with the lua config manager\n'
+}
+
+# fake_store_zoom — persist a zoom factor in the fake compositor state.
+# Args:    $1 zoom factor
+# Returns: 0 always
+# Globals: writes FAKE_HYPRCTL_DIR/zoom
+fake_store_zoom() {
+  # Six decimals mimic what getoption prints.
+  printf '%.6f\n' "$1" > "$FAKE_HYPRCTL_DIR/zoom"
+}
+
+# fake_getoption — answer `-j getoption <name>` for the two options zoomctl reads.
+# Args:    $1 option name
+# Returns: 0 always; stdout: Hyprland-style JSON
+# Globals: reads FAKE_HYPRCTL_DIR
+fake_getoption() {
+  local zoom_value
+  # Read first, sleep afterwards: the value may be stale when it arrives (the race).
+  case "$1" in
+    cursor:zoom_factor)
+      zoom_value="$(fake_read zoom 1.000000)"
+      fake_latency
+      printf '{"option": "cursor:zoom_factor", "float": %s, "set": true }\n' "$zoom_value" ;;
+    binds:scroll_event_delay)
+      printf '{"option": "binds:scroll_event_delay", "int": %s, "set": true }\n' \
+        "$(fake_read delay 300)" ;;
+  esac
+}
+
+# fake_apply_keyword — apply one `keyword <option> <value>` pair.
+# Args:    $1 option; $2 value
+# Returns: 0 always; stdout: ok
+# Globals: writes the zoom and delay files
+fake_apply_keyword() {
+  # Only the options zoomctl sets have an effect; the rest is accepted silently.
+  case "$1" in
+    cursor:zoom_factor) fake_latency; fake_store_zoom "$2" ;;
+    binds:scroll_event_delay) printf '%s\n' "$2" > "$FAKE_HYPRCTL_DIR/delay" ;;
+  esac
+  printf 'ok\n'
+}
+
+# fake_batch — execute `--batch "keyword a b ; keyword c d"`.
+# Args:    $1 batch string
+# Returns: 0 always; stdout: one ok per command
+# Globals: none
+fake_batch() {
+  local command_text keyword_word option value
+  # Split on semicolons like hyprctl does and replay each keyword.
+  while IFS= read -r command_text; do
+    read -r keyword_word option value <<< "$command_text"
+    [ "$keyword_word" = 'keyword' ] && fake_apply_keyword "$option" "$value"
+  done <<< "${1//;/$'\n'}"
+}
+
+# fake_eval — answer `eval <lua>` according to the mode.
+# Args:    $1 Lua code
+# Returns: 0 ok; 7 Lua error (like the real hyprctl); stdout: ok or the error text
+# Globals: reads FAKE_HYPRCTL_DIR
+fake_eval() {
+  local mode zoom_value
+  mode="$(fake_read mode engine)"
+  # HyprZoom.* calls only work when the engine is loaded.
+  if [[ "$1" == HyprZoom.* ]]; then
+    [ "$mode" = 'engine' ] || { printf "error: attempt to index a nil value (global 'HyprZoom')\n"; return 7; }
+    [ -r "$FAKE_HYPRCTL_DIR/eval_error" ] && { cat "$FAKE_HYPRCTL_DIR/eval_error"; return 7; }
+    printf 'ok\n'
+    return 0
+  fi
+  # hl.config works on any Lua config: apply the zoom factor it carries.
+  zoom_value="$(sed -n 's/.*zoom_factor = \([0-9.]*\).*/\1/p' <<< "$1")"
+  [ -z "$zoom_value" ] || { fake_latency; fake_store_zoom "$zoom_value"; }
+  printf 'ok\n'
+}
+
+# fake_repl — answer `repl <lua>` for the two expressions zoomctl sends.
+# Args:    $1 Lua expression
+# Returns: 0 always; stdout: the answer
+# Globals: reads FAKE_HYPRCTL_DIR
+fake_repl() {
+  local mode
+  mode="$(fake_read mode engine)"
+  # The probe expression distinguishes the three compositor states.
+  case "$mode:$1" in
+    'engine:return type(HyprZoom)') printf 'table\n' ;;
+    'engine:return HyprZoom.status()') fake_read status 'engine=lua' ;;
+    'lua-no-engine:'*) printf 'nil\n' ;;
+    'hyprlang:'*) fake_refuse_legacy ;;
+  esac
+}
+
+# fake_dispatch — route one hyprctl invocation.
+# Args:    the hyprctl arguments
+# Returns: the status of the emulated command
+# Globals: reads FAKE_HYPRCTL_DIR
+fake_dispatch() {
+  # Flags first: -j only changes the output format for the requests we emulate.
+  [ "${1:-}" = '-j' ] && shift
+  case "${1:-}" in
+    repl) fake_repl "${2:-}" ;;
+    eval) fake_eval "${2:-}" ;;
+    getoption) fake_getoption "${2:-}" ;;
+    --batch) fake_batch "${2:-}" ;;
+    version) printf '{"version": "0.56.2", "tag": "v0.56.2"}\n' ;;
+    plugin) fake_read plugins 'no plugins loaded' ;;
+    binds) fake_read binds '' ;;
+    keyword) fake_apply_keyword "${2:-}" "${3:-}" ;;
+  esac
+}
+
+# main — guard, log, then dispatch.
+# Args:    the hyprctl arguments
+# Returns: the status of the emulated command; 99 when the safety guard trips
+# Globals: reads FAKE_HYPRCTL_DIR
+main() {
+  # Safety: without a state dir this could be mistaken for a real compositor client.
+  [ -n "${FAKE_HYPRCTL_DIR:-}" ] || { echo 'fake-hyprctl: FAKE_HYPRCTL_DIR unset' >&2; exit 99; }
+  printf '%s\n' "$*" >> "$FAKE_HYPRCTL_DIR/calls.log"
+  # An unreachable compositor fails like hyprctl without an instance.
+  if [ "$(fake_read mode engine)" = 'unreachable' ]; then
+    echo 'HYPRLAND_INSTANCE_SIGNATURE not set! (is hyprland running?)' >&2
+    exit 1
+  fi
+  fake_dispatch "$@"
+}
+
+main "$@"
