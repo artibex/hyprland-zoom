@@ -320,6 +320,30 @@ class LiveApplyTests(GuiTestCase):
         # Spin values are sent with two decimals.
         self.assertEqual(self.fake.calls_matching("set"), [["set", "ZOOM_MAX", "6.00"]])
 
+    def test_scroll_direction_combo_shows_labels_and_sends_the_value(self):
+        """The new schema key becomes a drop-down with the human labels."""
+        window = self.open_window()
+        row = self.row(window, "BIND_SCROLL_DIRECTION")
+        self.assertIsInstance(row.widget, GUI["Adw"].ComboRow)
+        # The drop-down model holds the human labels.
+        model = row.widget.get_model()
+        self.assertEqual([model.get_string(i) for i in range(2)],
+                         ["Scroll down zooms in", "Scroll up zooms in"])
+        row.widget.set_selected(1)
+        # Choosing the second entry sends the schema value.
+        self.wait_for_calls("set")
+        self.assertEqual(self.fake.calls_matching("set"),
+                         [["set", "BIND_SCROLL_DIRECTION", "up-in"]])
+
+    def test_info_note_of_a_successful_set_is_toasted(self):
+        """stderr text on exit 0 reaches the user as a toast."""
+        self.fake.respond("set", stderr="zoomctl: engine not reachable, saved only\n")
+        window = self.open_window()
+        self.row(window, "ZOOM_SMOOTH_IMAGES").widget.set_active(False)
+        # The note arrives as a toast although the call succeeded.
+        pump(lambda: self.toasts)
+        self.assertEqual(self.toasts, ["zoomctl: engine not reachable, saved only"])
+
     def test_combo_sends_the_enum_value_not_the_label(self):
         """The drop-down shows labels but sends schema values."""
         window = self.open_window()
@@ -399,6 +423,7 @@ class LiveApplyTests(GuiTestCase):
         window = self.open_window()
         self.row(window, "ZOOM_STEP").scale.set_value(0.77)
         row = self.row(window, "ZOOM_STEP")
+        # Closing flushes the edit and makes it visible to the check below.
         window.close()
         # The close handler must send the move at once, not leave it to the debounce timer.
         self.assertFalse(row.is_editing())

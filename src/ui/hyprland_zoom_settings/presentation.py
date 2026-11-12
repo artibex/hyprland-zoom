@@ -60,6 +60,10 @@ OPTION_TEXT: Dict[str, Dict[str, Tuple[str, str]]] = {
         "multiply": ("Multiply", "Even steps at every zoom level (recommended)."),
         "add": ("Add", "Always the same fixed amount per step."),
     },
+    "BIND_SCROLL_DIRECTION": {
+        "down-in": ("Scroll down zooms in", "Scrolling towards you zooms in, as in version 0.1."),
+        "up-in": ("Scroll up zooms in", "Scrolling away from you zooms in."),
+    },
     "FILTER": {
         "invert": ("Invert", "Swaps light and dark, colours become their opposites."),
         "smart-invert": (

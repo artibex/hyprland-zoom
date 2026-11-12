@@ -34,6 +34,8 @@ class SettingsController(GObject.Object):
         "status-changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
         # Something failed; the argument is a message fit for a toast.
         "error": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
+        # A call succeeded but zoomctl added a note (e.g. saved while the engine is offline).
+        "info": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
     }
 
     def __init__(self, schema: SettingsSchema, client: ZoomctlClient) -> None:
@@ -224,6 +226,8 @@ class SettingsController(GObject.Object):
         self._set_in_flight = False
         if result.ok:
             self.values[key] = value
+            # An offline engine still saves the value, but zoomctl explains it on stderr.
+            self._report_note(result)
         else:
             # The first stderr line of zoomctl becomes the toast.
             self.emit("error", result.message)
@@ -263,11 +267,26 @@ class SettingsController(GObject.Object):
             # Every caller gets the same error reporting without repeating it.
             if not result.ok:
                 self.emit("error", result.message)
+            self._report_note(result)
             if on_done:
+                # The caller sees the result after the user has been told about it.
                 on_done(result)
 
         # The wrapper reports errors once and then calls the caller back.
         self.client.run(arguments, finished)
+
+    def _report_note(self, result: CommandResult) -> None:
+        """Forward a stderr note of a successful call as an info message.
+
+        Args:
+            result: Result of a zoomctl call.
+
+        Returns:
+            None.
+        """
+        # Only notes of successful calls are info; failures are reported as errors elsewhere.
+        if result.info_message:
+            self.emit("info", result.info_message)
 
     def reset_config(self, on_done: Optional[DoneCallback] = None) -> None:
         """Delete all user overrides (``zoomctl reset-config``) and reload the values.

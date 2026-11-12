@@ -161,6 +161,8 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.controller.connect("config-changed", lambda _c: self.refresh_pages())
         self.controller.connect("status-changed", self._on_status_changed)
         self.controller.connect("error", lambda _c, message: self.add_toast(message))
+        # Notes of successful calls (offline engine) are shown the same way.
+        self.controller.connect("info", lambda _c, message: self.add_toast(message))
         # The status timer only runs while the window is on screen.
         self.connect("map", lambda _w: self._start_status_timer())
         self.connect("unmap", lambda _w: self._stop_status_timer())

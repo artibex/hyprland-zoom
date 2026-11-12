@@ -260,6 +260,13 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual(presentation.option_label("FILTER", "sepia-warm"), "Sepia warm")
         self.assertIsNone(presentation.option_description("FILTER", "sepia-warm"))
 
+    def test_scroll_direction_has_the_requested_labels(self):
+        """The manager asked for these exact human labels."""
+        self.assertEqual(presentation.option_label("BIND_SCROLL_DIRECTION", "down-in"),
+                         "Scroll down zooms in")
+        self.assertEqual(presentation.option_label("BIND_SCROLL_DIRECTION", "up-in"),
+                         "Scroll up zooms in")
+
     def test_every_schema_enum_option_has_hand_written_text(self):
         """New schema options without presentation text must be noticed here."""
         for spec in real_schema().specs:

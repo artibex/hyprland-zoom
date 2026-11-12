@@ -196,6 +196,20 @@ class ControllerTests(ControllerFixture):
         self.wait_for_calls("config")
         self.assertEqual(self.fake.calls_matching("reset-config"), [["reset-config"]])
 
+    def test_stderr_note_on_success_is_info_not_error(self):
+        """``set`` exits 0 with a note when the engine is offline: shown as info."""
+        self.fake.respond("set", stderr="zoomctl: engine not reachable, saved only\n", rc=0)
+        infos = []
+        self.controller.connect("info", lambda _c, message: infos.append(message))
+        # The outcome list proves the change counted as applied.
+        outcomes = []
+        self.controller.set_value("ZOOM_STEP", "0.3", outcomes.append)
+        pump(lambda: outcomes)
+        # Exit status 0 means success even with a note.
+        self.assertEqual(outcomes, [True])
+        self.assertEqual(infos, ["zoomctl: engine not reachable, saved only"])
+        self.assertEqual(self.errors, [])
+
     def test_run_action_reports_failures_as_errors(self):
         """Actions share one error path."""
         self.fake.respond("zoom", stderr="zoomctl: engine not loaded\n", rc=1)

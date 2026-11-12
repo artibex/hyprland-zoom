@@ -49,6 +49,19 @@ class CommandResult:
         return not self.failure and self.exit_status == 0
 
     @property
+    def info_message(self) -> str:
+        """Pick a note zoomctl printed although it succeeded.
+
+        Returns:
+            The first non-empty stderr line of a successful call (for example "engine not
+            reachable, saved only"); empty when the call failed or printed nothing.
+        """
+        # zoomctl exits 0 with a stderr note when it only saved a setting: info, not an error.
+        if not self.ok:
+            return ""
+        return next((line.strip() for line in self.stderr.splitlines() if line.strip()), "")
+
+    @property
     def message(self) -> str:
         """Pick the text to show a user when the command failed.
 
