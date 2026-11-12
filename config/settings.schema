@@ -23,7 +23,8 @@ FILTER_BRIGHTNESS|float|0.00|-0.50..0.50|filter|Brightness|Shifts the overall br
 FILTER_SATURATION|float|1.00|0.00..2.00|filter|Saturation|0.00 removes colour, 1.00 keeps it, 2.00 doubles it.
 
 BIND_MODIFIERS|mods|SUPER + ALT||shortcuts|Modifier keys|Modifier keys held for every zoom shortcut, joined with " + ".
-BIND_SCROLL|bool|on||shortcuts|Zoom with the scroll wheel|Modifiers + scroll up/down zooms in and out.
+BIND_SCROLL|bool|on||shortcuts|Zoom with the scroll wheel|Modifiers + scroll wheel zooms in and out.
+BIND_SCROLL_DIRECTION|enum|down-in|down-in,up-in|shortcuts|Scroll direction|down-in: scrolling down (towards you) zooms in, as in version 0.1. up-in: scrolling up (away from you) zooms in.
 BIND_MOUSE_TOGGLE|bool|on||shortcuts|Toggle with middle click|Modifiers + middle mouse button toggles the zoom.
 BIND_KEY_IN|key|I||shortcuts|Zoom in key|Key that zooms in (held down it repeats). Empty disables it.
 BIND_KEY_OUT|key|O||shortcuts|Zoom out key|Key that zooms out (held down it repeats). Empty disables it.
