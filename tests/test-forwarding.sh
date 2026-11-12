@@ -94,17 +94,17 @@ test_preview() {
   reset_sandbox
   set_fake_mode engine
   run_zoomctl preview ZOOM_STEP=0.15 FILTER=invert
-  assert_calls $'repl return type(HyprZoom)\neval HyprZoom.preview({ZOOM_STEP="0.15", FILTER="invert"})' \
-    "preview: probes the engine, then sends the table literal"
+  assert_calls 'eval HyprZoom.preview({ZOOM_STEP="0.15", FILTER="invert"})' \
+    "preview: one eval with the table literal, no probe on the happy path"
   reset_sandbox
   set_fake_mode engine
   run_zoomctl preview step=0.1 bind-modifiers='super+alt' bind-key-in=
-  assert_calls $'repl return type(HyprZoom)\neval HyprZoom.preview({ZOOM_STEP="0.10", BIND_MODIFIERS="SUPER + ALT", BIND_KEY_IN=""})' \
+  assert_calls $'eval HyprZoom.preview({ZOOM_STEP="0.10", BIND_MODIFIERS="SUPER + ALT", BIND_KEY_IN=""})' \
     "preview: aliases resolved, values canonical, empty key allowed"
   reset_sandbox
   set_fake_mode engine
   run_zoomctl preview --end
-  assert_calls $'repl return type(HyprZoom)\neval HyprZoom.preview_end()' "preview --end"
+  assert_calls 'eval HyprZoom.preview_end()' "preview --end"
   run_zoomctl preview --end now
   assert_status 2 "preview --end with extra argument"
   run_zoomctl preview
@@ -124,7 +124,9 @@ test_preview() {
   run_zoomctl preview ZOOM_STEP=0.2
   assert_status 1 "preview: needs the engine"
   assert_contains "$ZC_ERR" "zoomctl setup" "preview: tells how to get the engine"
-  assert_not_contains "$(fake_calls)" "HyprZoom.preview" "preview: nothing sent without the engine"
+  set_fake_mode unreachable
+  run_zoomctl preview ZOOM_STEP=0.2
+  assert_contains "$ZC_ERR" "needs a running Hyprland session" "preview: no compositor explained"
 }
 
 # test_tracking_command — tracking is a persisted setting.

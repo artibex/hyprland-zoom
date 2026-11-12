@@ -57,6 +57,7 @@ zoomctl_status_fallback() {
   printf 'tracking=%s\n' "${ZOOMCTL_VALUE[ZOOM_TRACKING]}"
   printf 'tracking_effective=%s\n' \
     "$(zoomctl_status_effective_tracking "${ZOOMCTL_VALUE[ZOOM_TRACKING]}")"
+  # The margin width only matters for margin tracking but is always reported.
   printf 'edge_margin=%s\n' "${ZOOMCTL_VALUE[ZOOM_EDGE_MARGIN]}"
   printf 'plugin=%s\n' "$plugin_state"
   # Filters need the engine, so none is ever active on the fallback path.

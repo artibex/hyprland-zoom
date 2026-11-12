@@ -134,19 +134,28 @@ zoomctl_engine_preview() {
   zoomctl_engine_send_preview "${checked_pairs[@]}"
 }
 
+# zoomctl_engine_call_or_explain — send one engine call; on failure explain why it failed.
+# Args:    $1 Lua call text; $2 label for messages (for example "live preview")
+# Returns: 0 the engine answered ok; 1 failed (message on stderr)
+# Globals: reads/writes ZOOMCTL_PROBE
+zoomctl_engine_call_or_explain() {
+  local engine_answer
+  # Sliders call this many times per second, so the happy path is a single hyprctl process.
+  engine_answer="$(zoomctl_hyprland_eval "$1")" && return 0
+  # Only a failure pays for the probe that finds out what is missing.
+  zoomctl_engine_require "$2" || return 1
+  zoomctl_error "the engine rejected the $2: $engine_answer"
+}
+
 # zoomctl_engine_send_preview — deliver already-validated pairs to HyprZoom.preview.
 # Args:    $1.. canonical KEY=VALUE pairs
 # Returns: 0 applied; 1 no engine or rejected
 # Globals: reads/writes ZOOMCTL_PROBE
 zoomctl_engine_send_preview() {
-  local table_literal engine_answer
-  zoomctl_engine_require 'live preview' || return 1
-  # Only canonical, validated pairs may become Lua text.
+  local table_literal
   table_literal="$(zoomctl_lua_table_literal "$@")" || return 1
   # The engine overlays the table on the saved config without writing it.
-  if ! engine_answer="$(zoomctl_hyprland_eval "$(zoomctl_lua_call preview "$table_literal")")"; then
-    zoomctl_error "the engine rejected the preview: $engine_answer"
-  fi
+  zoomctl_engine_call_or_explain "$(zoomctl_lua_call preview "$table_literal")" 'live preview'
 }
 
 # zoomctl_engine_preview_end — drop the preview overrides and re-apply the saved config.
@@ -154,12 +163,7 @@ zoomctl_engine_send_preview() {
 # Returns: 0 done; 1 no engine or rejected
 # Globals: reads/writes ZOOMCTL_PROBE
 zoomctl_engine_preview_end() {
-  local engine_answer
-  zoomctl_engine_require 'live preview' || return 1
-  # The engine drops its overrides and re-applies the saved configuration.
-  if ! engine_answer="$(zoomctl_hyprland_eval "$(zoomctl_lua_call preview_end)")"; then
-    zoomctl_error "the engine rejected preview --end: $engine_answer"
-  fi
+  zoomctl_engine_call_or_explain "$(zoomctl_lua_call preview_end)" 'live preview'
 }
 
 # zoomctl_engine_reload — make a running session pick up freshly saved settings.
