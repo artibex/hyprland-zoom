@@ -398,8 +398,11 @@ class LiveApplyTests(GuiTestCase):
         """The last drag before closing must not be lost."""
         window = self.open_window()
         self.row(window, "ZOOM_STEP").scale.set_value(0.77)
+        row = self.row(window, "ZOOM_STEP")
         window.close()
-        # Wait until the refused call has really been made.
+        # The close handler must send the move at once, not leave it to the debounce timer.
+        self.assertFalse(row.is_editing())
+        # The call itself follows asynchronously.
         self.wait_for_calls("set")
         self.assertEqual(self.fake.calls_matching("set"), [["set", "ZOOM_STEP", "0.77"]])
 
