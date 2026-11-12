@@ -218,30 +218,32 @@ def pump_for(seconds: float) -> None:
     pump(lambda: time.monotonic() > deadline, timeout=seconds + 2)
 
 
-def wait_for_fake_processes(state_dir: Path, timeout: float = WAIT_SECONDS) -> None:
-    """Wait until no fake zoomctl of a test is still running.
+def remove_scratch_after_fakes(scratch: tempfile.TemporaryDirectory, state_dir: Path,
+                               timeout: float = WAIT_SECONDS) -> None:
+    """Delete a test's scratch directory once no fake zoomctl writes into it any more.
 
     Args:
+        scratch: The test's temporary directory.
         state_dir: The fake's state directory (holds ``busy.lock``).
-        timeout: Seconds before giving up; cleanup then proceeds anyway.
+        timeout: Seconds to wait for running fakes before deleting anyway.
 
     Returns:
         None.
     """
-    # Without any call there is no lock file and nothing to wait for.
+    # Opening creates the lock file when no fake ran yet, so late starters block on it too.
     lock_path = Path(state_dir) / "busy.lock"
-    if not lock_path.exists():
-        return
-    deadline = time.monotonic() + timeout
     with open(lock_path, "a", encoding="utf-8") as lock_file:
-        # Each running fake holds a shared lock; an exclusive one succeeds once all exited.
+        # Each running fake holds a shared lock; the exclusive one succeeds once all exited.
+        deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
                 fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                return
+                break
             except BlockingIOError:
                 # A fake may wait on its pipe being read, so keep the main loop turning.
                 pump_for(0.02)
+        # Holding the lock while deleting blocks fakes started meanwhile from writing.
+        scratch.cleanup()
 
 
 class FakeZoomctlTestCase(unittest.TestCase):
@@ -256,10 +258,9 @@ class FakeZoomctlTestCase(unittest.TestCase):
         silence_gi_warnings()
         # A private temp dir per test keeps call logs and stored settings isolated.
         scratch = tempfile.TemporaryDirectory(prefix="hzoom-gui-")
-        self.addCleanup(scratch.cleanup)
         self.fake = FakeZoomctl(Path(scratch.name) / "state")
-        # Cleanups run last-in first-out: stragglers finish before the directory goes.
-        self.addCleanup(wait_for_fake_processes, self.fake.state_dir)
+        # Running fakes finish first, and new ones stay blocked until the directory is gone.
+        self.addCleanup(remove_scratch_after_fakes, scratch, self.fake.state_dir)
         # patch.dict restores the real environment after the test.
         patcher = mock.patch.dict(os.environ, environment_for_fake(self.fake.state_dir))
         patcher.start()
