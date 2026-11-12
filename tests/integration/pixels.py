@@ -4,7 +4,7 @@
 Sub-commands:
   make <out.png> [width height]      write the test pattern (four colour quadrants + stripes)
   check <shot.png> <filter> [K=V..]  compare the four quadrant samples with the prediction
-  stripe <shot.png> <y>              print the width of the first white stripe on row y
+  stripe <shot.png> <y>              print the width of the widest white stripe on row y
 Exit status 0 means success; `check` exits 1 and prints the mismatches otherwise.
 """
 
@@ -218,24 +218,22 @@ def check_filter(path, filter_name, adjustments):
 
 
 def stripe_width(path, y):
-    """Measure the first white stripe on one row.
+    """Measure the widest white stripe on one row (stripes cut by the screen edge are narrower).
 
     Args:
         path: screenshot PNG path.
         y: row to scan.
 
     Returns:
-        Width of the first run of white pixels in pixels (0 when there is none).
+        Width of the longest run of white pixels in pixels (0 when there is none).
     """
-    # Scan for the first white pixel, then count until the run ends.
+    # Walk the row once, tracking the current and the longest run of white pixels.
     image = read_png(path)
-    columns = range(image[0])
-    start = next((x for x in columns if pixel_at(image, x, y) == (255, 255, 255)), None)
-    if start is None:
-        return 0
-    end = next((x for x in range(start, image[0]) if pixel_at(image, x, y) != (255, 255, 255)),
-               image[0])
-    return end - start
+    longest = current = 0
+    for x in range(image[0]):
+        current = current + 1 if pixel_at(image, x, y) == (255, 255, 255) else 0
+        longest = max(longest, current)
+    return longest
 
 
 def main(arguments):

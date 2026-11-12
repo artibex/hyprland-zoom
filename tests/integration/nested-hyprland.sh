@@ -146,9 +146,9 @@ create_headless_output() {
   done
   # Give the new output a moment to settle before focusing it.
   sleep 0.5
-  # New windows open on the focused output, so focus the virtual one.
-  HYPRLAND_INSTANCE_SIGNATURE="$1" hyprctl dispatch focusmonitor "$HEADLESS_OUTPUT" \
-    > /dev/null 2>&1 || true
+  # New windows open on the focused output, so focus the virtual one (Lua dispatcher syntax).
+  HYPRLAND_INSTANCE_SIGNATURE="$1" hyprctl dispatch \
+    "hl.dsp.focus({ monitor = \"$HEADLESS_OUTPUT\" })" > /dev/null 2>&1 || true
 }
 
 # command_start — start the nested instance.

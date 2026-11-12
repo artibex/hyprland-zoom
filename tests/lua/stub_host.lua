@@ -67,8 +67,8 @@ local function build_hl(record, options)
   function hl.config(nested)
     local flat = flatten_config(nested)
     for key, value in pairs(flat) do
-      local plugin_key = key:match("^plugin%.hyprzoom%.")
-      local known = KNOWN_CONFIG_KEYS[key] ~= nil or (plugin_key and options.plugin_loaded)
+      -- Plugin keys are accepted before the plugin loads (verified on 0.56.2).
+      local known = KNOWN_CONFIG_KEYS[key] ~= nil or key:match("^plugin%.hyprzoom%.") ~= nil
       if not known then
         error("unknown config key '" .. key .. "'", 2)
       end

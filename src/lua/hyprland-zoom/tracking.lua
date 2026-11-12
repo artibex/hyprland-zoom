@@ -95,9 +95,9 @@ function M.apply(host, settings)
   if not applied then
     return resolved, tostring(problem)
   end
-  -- Plugin keys exist only while the plugin is loaded; setting them otherwise is an error.
-  if plugin_loaded then
-    local _, plugin_problem = apply_plugin_options(host, resolved)
+  -- Verified on 0.56.2 (P3): plugin keys may be set before the plugin loads; they apply at load.
+  local _, plugin_problem = apply_plugin_options(host, resolved)
+  if plugin_problem then
     return resolved, plugin_problem
   end
   return resolved, nil

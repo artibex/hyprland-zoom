@@ -51,15 +51,15 @@ T.case("edge_margin is 0 for modes without a margin", function()
   T.eq(tracking.resolve(settings_for("follow"), true).edge_margin, 0.0)
 end)
 
-T.case("apply sets the cursor options and leaves plugin keys alone when the plugin is absent", function()
-  -- The fake raises on plugin.* keys unless the plugin is loaded, like Hyprland.
+T.case("apply sets cursor options and pre-sets the plugin keys even when it is not loaded yet", function()
+  -- Verified on 0.56.2: the plugin values apply when the plugin loads later.
   local host = stub_host.new()
   local resolved, problem = tracking.apply(host, settings_for("centered"))
   T.eq(problem, nil)
   T.eq(resolved.plugin_loaded, false)
   T.eq(host.record.config["cursor.zoom_detached_camera"], false)
   T.eq(host.record.config["cursor.zoom_rigid"], true)
-  T.eq(host.record.config["plugin.hyprzoom.edge_margin"], nil)
+  T.eq(host.record.config["plugin.hyprzoom.enabled"], false)
 end)
 
 T.case("apply pushes margin and enabled to the plugin when it is loaded", function()
