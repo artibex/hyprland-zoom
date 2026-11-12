@@ -1,94 +1,288 @@
 #!/usr/bin/env bash
 # nested-hyprland.sh — start/stop/talk to a throwaway Hyprland nested in the live session.
-#   nested-hyprland.sh start <config.lua>   -> starts, prints instance signature
+#   nested-hyprland.sh start <config.lua>   -> starts, prints the instance signature
 #   nested-hyprland.sh sig | wl             -> signature / nested wayland socket name
 #   nested-hyprland.sh ctl <hyprctl args>   -> hyprctl against the nested instance ONLY
-#   nested-hyprland.sh shot <out.png>       -> grim screenshot (SHOT_OUTPUT=HEADLESS-1 by default)
+#   nested-hyprland.sh shot <out.png>       -> grim screenshot (SHOT_OUTPUT=HEADLESS-1 default)
 #   nested-hyprland.sh run <cmd...>         -> run a client inside the nested instance
 #   nested-hyprland.sh log [N]              -> tail of the nested hyprland.log
-#   nested-hyprland.sh stop                 -> kill ONLY the PID we started + remove its runtime dir
+#   nested-hyprland.sh stop                 -> kill ONLY the PID we started + remove its dir
 #
+# State lives in $NESTED_STATE_DIR (default tests/integration/work/state).
 # How it works (verified on Hyprland 0.56.2):
-#  * Started inside a running Wayland session Hyprland picks the aquamarine *wayland* backend and
-#    shows up as ONE window ("aquamarine - WAYLAND-1") in the parent compositor. (AQ_BACKENDS=headless
-#    is ignored by this aquamarine build; without WAYLAND_DISPLAY it dies "CBackend::create() failed".)
-#  * The window size is dictated by the parent's tiling, so for deterministic geometry we add a
-#    virtual `HEADLESS-1` output (1280x720 via hl.monitor in the config) with
-#    `hyprctl output create headless` and screenshot that one (grim -o HEADLESS-1).
-#  * The signature is injected per command (HYPRLAND_INSTANCE_SIGNATURE=... on the hyprctl call);
-#    nothing is exported into the caller's shell.
+#  * Started inside a running Wayland session Hyprland picks the aquamarine *wayland* backend
+#    and shows up as ONE window ("aquamarine - WAYLAND-1") in the parent compositor.
+#    AQ_BACKENDS=headless is ignored by this aquamarine build.
+#  * The window size is dictated by the parent's tiling, so for deterministic geometry a
+#    virtual HEADLESS-1 output (1280x720 via hl.monitor in the config) is created and
+#    screenshots use that output.
+#  * The signature is injected per command; nothing is exported into the caller's shell.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE="${NESTED_STATE_DIR:-$HERE/work/state}"
-mkdir -p "$STATE"
-RT="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR unset}"
+# Directory of this script and the state directory of the nested instance.
+HERE="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+STATE_DIR="${NESTED_STATE_DIR:-$HERE/work/state}"
+# The live session's runtime directory (sockets live below it); required.
+RUNTIME_DIR="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR unset}"
+# Name of the virtual output screenshots are taken from.
+HEADLESS_OUTPUT="${SHOT_OUTPUT:-HEADLESS-1}"
 
-cmd="${1:-}"; shift || true
+# die — print an error message and stop the script.
+# Args:    $1 message
+# Returns: never returns (exit 1); stderr: the message
+# Globals: none
+die() {
+  # Errors go to stderr so stdout stays machine-readable.
+  echo "nested-hyprland: $1" >&2
+  exit 1
+}
 
-sig()  { [[ -s "$STATE/sig" ]] || { echo "nested-hyprland: no nested instance running" >&2; exit 1; }; cat "$STATE/sig"; }
-pid()  { cat "$STATE/pid"; }
-# SAFETY: never fall back to the live session's WAYLAND_DISPLAY / signature when no nested instance runs
-disp() { [[ -s "$STATE/wl" ]] || { echo "nested-hyprland: no nested instance running" >&2; exit 1; }; cat "$STATE/wl"; }
+# read_state_file — print one recorded value of the nested instance.
+# Args:    $1 file name inside the state directory (sig, wl or pid)
+# Returns: 0 and the value on stdout; exits 1 when no nested instance is recorded
+# Globals: reads STATE_DIR
+# Notes:   SAFETY: never falls back to the live session's display or signature.
+read_state_file() {
+  # An empty or missing file means no instance: refuse instead of guessing.
+  [[ -s "$STATE_DIR/$1" ]] || die "no nested instance running"
+  cat "$STATE_DIR/$1"
+}
 
-case "$cmd" in
-  start)
-    cfg="$(readlink -f "${1:?usage: start <config.lua>}")"
-    [[ -f "$STATE/pid" ]] && kill -0 "$(pid)" 2>/dev/null && { echo "already running: $(sig)" >&2; exit 1; }
-    rm -f "$STATE"/{sig,pid,wl}
-    ls "$RT/hypr" 2>/dev/null | sort > "$STATE/before.sig" || true
-    ls "$RT" 2>/dev/null | grep -E '^wayland-[0-9]+$' | sort > "$STATE/before.wl" || true
-    # Isolated XDG dirs: the child never touches the user's config/cache/state.
-    mkdir -p "$STATE/xdg/config" "$STATE/xdg/data" "$STATE/xdg/cache" "$STATE/xdg/state"
-    # env -u: don't inherit the parent's instance signature. The parent's WAYLAND_DISPLAY is kept on
-    # purpose: it is what makes Hyprland choose the nested (wayland) backend.
-    env -u HYPRLAND_INSTANCE_SIGNATURE -u HYPRLAND_CMD \
-        XDG_CONFIG_HOME="$STATE/xdg/config" XDG_DATA_HOME="$STATE/xdg/data" \
-        XDG_CACHE_HOME="$STATE/xdg/cache" XDG_STATE_HOME="$STATE/xdg/state" \
-        setsid Hyprland --config "$cfg" > "$STATE/stdout.log" 2>&1 &
-    echo $! > "$STATE/pid"
-    new=""
-    for _ in $(seq 1 100); do
-      sleep 0.2
-      kill -0 "$(pid)" 2>/dev/null || { echo "Hyprland exited early; see $STATE/stdout.log" >&2; exit 1; }
-      new="$(ls "$RT/hypr" 2>/dev/null | sort | comm -13 "$STATE/before.sig" - | head -1 || true)"
-      [[ -n "$new" && -S "$RT/hypr/$new/.socket.sock" ]] && break
-      new=""
-    done
-    [[ -n "$new" ]] || { echo "no new instance signature appeared" >&2; exit 1; }
-    echo "$new" > "$STATE/sig"
-    ls "$RT" | grep -E '^wayland-[0-9]+$' | sort | comm -13 "$STATE/before.wl" - | head -1 > "$STATE/wl" || true
-    if [[ "${NESTED_HEADLESS_OUTPUT:-1}" == 1 ]]; then
-      for _ in $(seq 1 25); do
-        HYPRLAND_INSTANCE_SIGNATURE="$new" hyprctl output create headless >/dev/null 2>&1 && break
-        sleep 0.2
-      done
-      sleep 0.5
-      # make the headless output the focused one so new windows open there
-      HYPRLAND_INSTANCE_SIGNATURE="$new" hyprctl dispatch focusmonitor HEADLESS-1 >/dev/null 2>&1 || true
+# is_instance_running — test whether the recorded PID is alive.
+# Args:    none
+# Returns: 0 when the nested Hyprland process is alive; 1 otherwise
+# Globals: reads STATE_DIR
+is_instance_running() {
+  # No PID file means never started or already stopped.
+  [[ -f "$STATE_DIR/pid" ]] || return 1
+  kill -0 "$(cat "$STATE_DIR/pid")" 2> /dev/null
+}
+
+# list_wayland_sockets — print the names of the wayland sockets in the runtime directory.
+# Args:    none
+# Returns: 0 always; stdout: one socket name (wayland-N) per line
+# Globals: reads RUNTIME_DIR
+list_wayland_sockets() {
+  local socket_path
+  # A glob (not `ls | grep`) is safe for any file name; only real sockets count.
+  for socket_path in "$RUNTIME_DIR"/wayland-[0-9]*; do
+    [[ -S "$socket_path" ]] && basename "$socket_path"
+  done
+  return 0
+}
+
+# snapshot_runtime_dir — remember which sockets exist before the start.
+# Args:    none
+# Returns: 0 always; writes before.sig and before.wl into the state directory
+# Globals: reads RUNTIME_DIR, STATE_DIR
+snapshot_runtime_dir() {
+  # Instance directories and wayland sockets that already belong to other sessions.
+  { ls "$RUNTIME_DIR/hypr" 2> /dev/null || true; } | sort > "$STATE_DIR/before.sig"
+  list_wayland_sockets | sort > "$STATE_DIR/before.wl"
+}
+
+# launch_hyprland — start the nested compositor in the background.
+# Args:    $1 absolute path of the Lua config
+# Returns: 0 always; writes the PID file and stdout.log
+# Globals: reads STATE_DIR
+# Notes:   The parent's WAYLAND_DISPLAY is kept on purpose: it selects the nested backend.
+launch_hyprland() {
+  # Isolated XDG dirs: the child never touches the user's config, cache or state.
+  mkdir -p "$STATE_DIR"/xdg/{config,data,cache,state}
+  # Do not inherit the parent's instance signature.
+  env -u HYPRLAND_INSTANCE_SIGNATURE -u HYPRLAND_CMD \
+    XDG_CONFIG_HOME="$STATE_DIR/xdg/config" XDG_DATA_HOME="$STATE_DIR/xdg/data" \
+    XDG_CACHE_HOME="$STATE_DIR/xdg/cache" XDG_STATE_HOME="$STATE_DIR/xdg/state" \
+    setsid Hyprland --config "$1" > "$STATE_DIR/stdout.log" 2>&1 &
+  echo $! > "$STATE_DIR/pid"
+}
+
+# wait_for_new_signature — wait until the nested instance opened its control socket.
+# Args:    none
+# Returns: 0 and the new signature on stdout; 1 when the process died or nothing appeared
+# Globals: reads RUNTIME_DIR, STATE_DIR
+wait_for_new_signature() {
+  local new_signature
+  # Poll for up to 20 seconds.
+  for _ in $(seq 1 100); do
+    sleep 0.2
+    # A dead process will never open a socket: fail fast with a pointer to the log.
+    if ! is_instance_running; then
+      echo "Hyprland exited early; see $STATE_DIR/stdout.log" >&2
+      return 1
     fi
-    echo "$new"
-    ;;
-  sig)  sig ;;
-  wl)   disp ;;
-  ctl)  s="$(sig)" || exit 1; HYPRLAND_INSTANCE_SIGNATURE="$s" hyprctl "$@" ;;
-  shot) w="$(disp)" || exit 1; WAYLAND_DISPLAY="$w" grim -o "${SHOT_OUTPUT:-HEADLESS-1}" "${1:?usage: shot <out.png>}" ;;
-  run)  w="$(disp)" || exit 1; s="$(sig)" || exit 1
-        WAYLAND_DISPLAY="$w" HYPRLAND_INSTANCE_SIGNATURE="$s" setsid "$@" >/dev/null 2>&1 & ;;
-  log)  tail -n "${1:-60}" "$RT/hypr/$(sig)/hyprland.log" ;;
-  stop)
-    if [[ -f "$STATE/pid" ]] && kill -0 "$(pid)" 2>/dev/null; then
-      s="$(cat "$STATE/sig" 2>/dev/null || true)"
-      kill "$(pid)"
-      for _ in $(seq 1 50); do kill -0 "$(pid)" 2>/dev/null || break; sleep 0.1; done
-      kill -0 "$(pid)" 2>/dev/null && kill -9 "$(pid)"
-      echo "stopped $(pid)"
-      # remove the stale runtime dir of THIS instance (never the live session's)
-      if [[ -n "$s" && "$s" != "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then rm -rf "${RT:?}/hypr/$s"; fi
-    else
-      echo "not running"
+    # The new instance is the signature directory that was not there before.
+    new_signature="$({ ls "$RUNTIME_DIR/hypr" 2> /dev/null || true; } | sort \
+      | comm -13 "$STATE_DIR/before.sig" - | head -1)"
+    # The instance is ready when its control socket exists.
+    if [[ -n "$new_signature" && -S "$RUNTIME_DIR/hypr/$new_signature/.socket.sock" ]]; then
+      echo "$new_signature"
+      return 0
     fi
-    rm -f "$STATE"/{sig,pid,wl}
-    ;;
-  *) sed -n '2,10p' "$0"; exit 2 ;;
-esac
+  done
+  # Timed out: report it so the caller can stop the half-started process.
+  echo "no new instance signature appeared" >&2
+  return 1
+}
+
+# record_wayland_display — store the wayland socket the nested instance created.
+# Args:    none
+# Returns: 0 always; writes the wl file
+# Globals: reads RUNTIME_DIR, STATE_DIR
+record_wayland_display() {
+  # The new socket is whichever wayland-N did not exist before the start.
+  list_wayland_sockets | sort | comm -13 "$STATE_DIR/before.wl" - | head -1 > "$STATE_DIR/wl"
+}
+
+# create_headless_output — add the virtual 1280x720 output and focus it.
+# Args:    $1 instance signature
+# Returns: 0 always (failures are tolerated; the config may already provide the output)
+# Globals: none
+create_headless_output() {
+  # The control socket may need a moment before it accepts commands.
+  for _ in $(seq 1 25); do
+    HYPRLAND_INSTANCE_SIGNATURE="$1" hyprctl output create headless > /dev/null 2>&1 && break
+    sleep 0.2
+  done
+  # Give the new output a moment to settle before focusing it.
+  sleep 0.5
+  # New windows open on the focused output, so focus the virtual one.
+  HYPRLAND_INSTANCE_SIGNATURE="$1" hyprctl dispatch focusmonitor "$HEADLESS_OUTPUT" \
+    > /dev/null 2>&1 || true
+}
+
+# command_start — start the nested instance.
+# Args:    $1 Lua config path
+# Returns: 0 and the signature on stdout; 1 on failure or when already running
+# Globals: reads STATE_DIR, NESTED_HEADLESS_OUTPUT; writes the state files
+command_start() {
+  local config_path new_signature
+  # Resolve to an absolute path because Hyprland is started from another directory.
+  config_path="$(readlink -f "${1:?usage: start <config.lua>}")"
+  mkdir -p "$STATE_DIR"
+  # Refuse to start a second instance on the same state directory.
+  if is_instance_running; then
+    die "already running: $(read_state_file sig)"
+  fi
+  # Forget stale values, then record what exists so the new instance can be identified.
+  rm -f "$STATE_DIR"/{sig,pid,wl}
+  snapshot_runtime_dir
+  launch_hyprland "$config_path"
+  # Wait until the control socket is up; a failure leaves the PID file for `stop`.
+  new_signature="$(wait_for_new_signature)" || return 1
+  echo "$new_signature" > "$STATE_DIR/sig"
+  record_wayland_display
+  # Opt out with NESTED_HEADLESS_OUTPUT=0 when the config creates its own output.
+  if [[ "${NESTED_HEADLESS_OUTPUT:-1}" == 1 ]]; then
+    create_headless_output "$new_signature"
+  fi
+  echo "$new_signature"
+}
+
+# command_ctl — run hyprctl against the nested instance only.
+# Args:    $@ hyprctl arguments
+# Returns: hyprctl's exit status; stdout: hyprctl's output
+# Globals: reads STATE_DIR
+command_ctl() {
+  local signature
+  # The signature is injected for this one command only (never exported).
+  signature="$(read_state_file sig)"
+  HYPRLAND_INSTANCE_SIGNATURE="$signature" hyprctl "$@"
+}
+
+# command_shot — take a grim screenshot of the virtual output.
+# Args:    $1 output PNG path
+# Returns: grim's exit status
+# Globals: reads STATE_DIR, HEADLESS_OUTPUT
+command_shot() {
+  local display
+  # grim must talk to the nested compositor's socket, not the live session's.
+  display="$(read_state_file wl)"
+  WAYLAND_DISPLAY="$display" grim -o "$HEADLESS_OUTPUT" "${1:?usage: shot <out.png>}"
+}
+
+# command_run — start a client inside the nested instance (detached).
+# Args:    $@ the command and its arguments
+# Returns: 0 once the client was started in the background
+# Globals: reads STATE_DIR
+command_run() {
+  local display signature
+  # Both values come from the recorded nested instance (refuses when none runs).
+  display="$(read_state_file wl)"
+  signature="$(read_state_file sig)"
+  WAYLAND_DISPLAY="$display" HYPRLAND_INSTANCE_SIGNATURE="$signature" \
+    setsid "$@" > /dev/null 2>&1 &
+}
+
+# command_log — print the tail of the nested Hyprland log.
+# Args:    $1 number of lines (optional, default 60)
+# Returns: tail's exit status
+# Globals: reads RUNTIME_DIR, STATE_DIR
+command_log() {
+  tail -n "${1:-60}" "$RUNTIME_DIR/hypr/$(read_state_file sig)/hyprland.log"
+}
+
+# command_stop — stop ONLY the instance this script started.
+# Args:    none
+# Returns: 0 always; stdout: "stopped <pid>" or "not running"
+# Globals: reads RUNTIME_DIR, STATE_DIR; removes the state files
+command_stop() {
+  local pid signature
+  # Nothing to stop: just clean the records.
+  if ! is_instance_running; then
+    echo "not running"
+    # Remove the leftovers so the next start begins clean.
+    rm -f "$STATE_DIR"/{sig,pid,wl}
+    return 0
+  fi
+  # The recorded PID is the only process this script may ever signal.
+  pid="$(cat "$STATE_DIR/pid")"
+  signature="$(cat "$STATE_DIR/sig" 2> /dev/null || true)"
+  # Polite first, forceful only after five seconds.
+  kill "$pid"
+  # Poll for the process to exit.
+  for _ in $(seq 1 50); do
+    kill -0 "$pid" 2> /dev/null || break
+    sleep 0.1
+  done
+  # Still alive after the grace period: kill it hard (our own PID only).
+  kill -0 "$pid" 2> /dev/null && kill -9 "$pid"
+  echo "stopped $pid"
+  # Remove the stale runtime dir of THIS instance only (never the live session's).
+  if [[ -n "$signature" && "$signature" != "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    rm -rf "${RUNTIME_DIR:?}/hypr/$signature"
+  fi
+  rm -f "$STATE_DIR"/{sig,pid,wl}
+}
+
+# usage — print the header comment as help text.
+# Args:    none
+# Returns: 0 always; stdout: the usage lines
+# Globals: none
+usage() {
+  # The first block of comment lines doubles as the help text.
+  sed -n '2,9p' "$0"
+}
+
+# main — dispatch the sub-command.
+# Args:    $1 sub-command; remaining arguments are passed on
+# Returns: the sub-command's exit status; 2 for an unknown sub-command
+# Globals: none
+main() {
+  local subcommand="${1:-}"
+  # No arguments at all is fine: usage is printed below.
+  shift || true
+  case "$subcommand" in
+    start) command_start "$@" ;;  # start the nested compositor
+    sig) read_state_file sig ;;   # print its instance signature
+    wl) read_state_file wl ;;     # print its wayland socket name
+    ctl) command_ctl "$@" ;;      # hyprctl against the nested instance
+    shot) command_shot "$@" ;;    # screenshot of the virtual output
+    run) command_run "$@" ;;      # start a client inside it
+    log) command_log "$@" ;;      # tail of its log
+    stop) command_stop ;;         # stop only what we started
+    *) usage; return 2 ;;         # unknown sub-command
+  esac
+}
+
+main "$@"
