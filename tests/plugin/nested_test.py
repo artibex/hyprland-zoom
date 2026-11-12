@@ -383,12 +383,11 @@ class LiveTest:
         self.check_path(0.30, "off-centre zoom-in keeps the view still (anti-jerk), margin 0.30",
                         OFF_CENTRE)
 
-    def check_margin_change_while_zoomed(self) -> None:
-        """Raises the margin while zoomed with the pointer in the new border zone (R-P3-05).
+    def zoom_to_native_rim(self) -> tuple | None:
+        """Zooms in at the centre with the native margin and pans to the new border zone.
 
-        Measured behaviour (documented in docs/plugin.md): the view re-centres ONCE, by exactly
-        the overshoot of the new safe box, on the next rendered frame; there is no oscillation
-        and no extra jump. The pointer rests on the new safe-box rim afterwards.
+        Returns:
+            The measured camera, or None when the gradient is not visible.
         """
         nested = self.nested
         # Native margin first: pan right/down so the pointer rests on the 0.9 box rim.
@@ -400,7 +399,43 @@ class LiveTest:
         time.sleep(ZOOM_SETTLE_SECONDS)
         # Pan into the border zone of the NEXT margin and measure the camera before the change.
         nested.move_pointer(1000, 560)
-        before = nested.camera(CENTRE.zoom)
+        return nested.camera(CENTRE.zoom)
+
+    def prepare_margin_change(self) -> bool:
+        """Builds the premise of the margin-change check and proves it holds before using it.
+
+        The premise is the native rim camera. If the zoom-in started with the pointer anywhere
+        but the centre (outside the safe box), Hyprland's anti-jerk rule keeps the padding off
+        and the camera ends at pointer - view size, e.g. (362, 200) at zoom 2. That state is
+        legal Hyprland behaviour, not a margin bug (reproduced on purpose in the integration
+        notes), so the premise is re-built once and a second miss is reported as a setup error.
+
+        Returns:
+            True when the camera sits on the native rim and the check may proceed.
+        """
+        expected = self.predict(0.05, CENTRE)[0]
+        for attempt in (1, 2):
+            before = self.zoom_to_native_rim()
+            if before is not None and self.matches([before], [expected]):
+                return True
+            # Record what was seen and where the pointer really is, to diagnose the next miss.
+            pointer = self.nested.ctl("cursorpos")
+            print(f"NOTE  margin-change setup attempt {attempt}: camera {before}, "
+                  f"expected {expected}, pointer {pointer}", flush=True)
+        self.check(False, f"margin-change setup: native rim camera {expected} not reached")
+        return False
+
+    def check_margin_change_while_zoomed(self) -> None:
+        """Raises the margin while zoomed with the pointer in the new border zone (R-P3-05).
+
+        Measured behaviour (documented in docs/plugin.md): the view re-centres ONCE, by exactly
+        the overshoot of the new safe box, on the next rendered frame; there is no oscillation
+        and no extra jump. The pointer rests on the new safe-box rim afterwards.
+        """
+        nested = self.nested
+        # Without the native rim as premise the check would measure something else.
+        if not self.prepare_margin_change():
+            return
         # The new margin applies on the next frame; a one pixel pointer move forces that frame.
         nested.lua("hl.config({plugin={hyprzoom={edge_margin=0.40}}})")
         nested.move_pointer(1000, 561)
@@ -409,8 +444,8 @@ class LiveTest:
         view_w, view_h = WIDTH / CENTRE.zoom, HEIGHT / CENTRE.zoom
         expected = (1000 - 0.60 * view_w, 561 - 0.60 * view_h)
         self.check(
-            before is not None and after is not None and self.matches([after], [expected]),
-            f"margin 0.05 -> 0.40 while zoomed re-centres once: {before} -> {after}, "
+            after is not None and self.matches([after], [expected]),
+            f"margin 0.05 -> 0.40 while zoomed re-centres once: after {after}, "
             f"predicted {expected}",
         )
         # A second frame without any change must not move the view again (no oscillation).
