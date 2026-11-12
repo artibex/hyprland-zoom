@@ -33,6 +33,7 @@ local function engine_candidates()
   local own_directory = info and info.source:match("^@(.*)/[^/]*$")
   if own_directory then
     candidates[#candidates + 1] = own_directory .. "/hyprland-zoom.lua"
+    -- Repository checkout layout: the engine sits in src/lua next to config/.
     candidates[#candidates + 1] = own_directory .. "/../src/lua/hyprland-zoom.lua"
   end
   candidates[#candidates + 1] = DEFAULT_ENGINE_PATH
@@ -49,6 +50,7 @@ local function load_engine()
       return true
     end
   end
+  -- Nothing found: the caller reports it.
   return false
 end
 

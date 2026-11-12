@@ -53,6 +53,7 @@ function M.read_legacy_saved_zoom(host)
     return nil
   end
   local text = host.read_file(runtime_directory .. "/zoomctl/last_zoom")
+  -- Missing or invalid files read as nothing.
   return text and parse_zoom(util.trim(text)) or nil
 end
 
@@ -71,6 +72,7 @@ function M.read(host, directory)
     elseif key == "filter_active" then
       values.filter_active = (value == "on")
     elseif key == "filter" and value:match("^[%a%-]+$") then
+      -- Only plain enum-like names are accepted.
       values.filter = value
     elseif key == "instance" and value:match("^[%w_%.%-]+$") then
       values.instance = value
@@ -91,6 +93,7 @@ function M.write(host, directory, values)
     lines[#lines + 1] = string.format("zoom=%.6f", values.zoom)
   end
   if values.saved_zoom then
+    -- Six decimals keep the toggle memory precise.
     lines[#lines + 1] = string.format("saved_zoom=%.6f", values.saved_zoom)
   end
   lines[#lines + 1] = "filter_active=" .. (values.filter_active and "on" or "off")

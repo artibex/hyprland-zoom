@@ -115,6 +115,7 @@ function M.apply_rendering(host, settings)
     return nil, tostring(animation_problem)
   end
   if not configured then
+    -- Report the first failure; the other option may be fine.
     return nil, tostring(config_problem)
   end
   return true

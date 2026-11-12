@@ -28,6 +28,7 @@ local function read_file(path)
     return nil
   end
   local content = handle:read("a")
+  -- Always release the descriptor, also when reading failed.
   handle:close()
   return content
 end
@@ -42,10 +43,12 @@ local function write_file(path, text)
   if not handle then
     return nil, open_problem
   end
+  -- Remember the write result before closing.
   local written, write_problem = handle:write(text)
   handle:close()
   if not written then
     os.remove(temporary_path)
+    -- Report the failure; the caller decides how loud to be.
     return nil, write_problem
   end
   return os.rename(temporary_path, path)
@@ -86,22 +89,30 @@ function M.system(environment)
   local host = { hl = hl, read_file = read_file, write_file = write_file, list_dir = list_dir,
     ensure_dir = ensure_dir, getenv = os.getenv, now = os.time, remove_file = os.remove }
 
-  -- log: plain print; Hyprland routes it to its log (and to `hyprctl repl` output).
+  -- log — print a prefixed line; Hyprland routes it to its log (and to `hyprctl repl` output).
+  -- Args:    message string
+  -- Returns: nothing
   function host.log(message)
     print(LOG_PREFIX .. message)
   end
 
-  -- notify: an on-screen notice; failures are ignored because nothing else can report them.
+  -- notify — show an on-screen notice; failures are ignored (nothing else could report them).
+  -- Args:    text string
+  -- Returns: nothing
   function host.notify(text)
     pcall(hl.notification.create, { text = text, duration = NOTIFICATION_MS })
   end
 
-  -- omarchy_present: Omarchy defines the global helper `o` with a `bind` function.
+  -- omarchy_present — detect Omarchy by its global helper `o` with a `bind` function.
+  -- Args:    none
+  -- Returns: true when Omarchy's helper is loaded
   function host.omarchy_present()
     return type(environment.o) == "table" and type(environment.o.bind) == "function"
   end
 
-  -- after: run a function once after a delay, using a Hyprland timer.
+  -- after — run a function once after a delay, using a Hyprland timer.
+  -- Args:    milliseconds number; callback function
+  -- Returns: nothing
   function host.after(milliseconds, callback)
     pcall(hl.timer, callback, { timeout = milliseconds, type = "oneshot" })
   end

@@ -28,6 +28,7 @@ local function read_template(host, shader_directory, name)
   end
   local text = host.read_file(util.join_path(shader_directory, name .. ".glsl"))
   if not text then
+    -- A broken install must produce a readable error, not a Lua trace.
     return nil, "missing shader template " .. name .. ".glsl"
   end
   return text
@@ -80,6 +81,7 @@ function M.validate(text)
   if #text > MAX_SHADER_BYTES or not text:find("void main()", 1, true) then
     return nil, "shader has an unexpected size or no main()"
   end
+  -- Valid: the text may be written and applied.
   return true
 end
 
@@ -93,6 +95,7 @@ local function load_filter_source(host, shader_directory, filter_name)
   if not base or not body then
     return nil, base_problem or body_problem
   end
+  -- Shared code (CVD maths) is pulled in by @INCLUDE markers.
   local expanded_body, include_problem = expand_includes(host, shader_directory, body)
   if not expanded_body then
     return nil, include_problem
@@ -115,6 +118,7 @@ local function bake_constants(skeleton, settings)
   local text = skeleton
   for _, constant in ipairs(constants) do
     local name, literal = constant[1], constant[2]
+    -- A non-finite or non-numeric setting must never reach the shader.
     if not literal then
       return nil, "filter setting " .. name:lower() .. " is not a number"
     end
@@ -133,6 +137,7 @@ function M.generate(host, shader_directory, filter_name, settings)
     return nil, body
   end
   local text, constants_problem = bake_constants(base, settings)
+  -- Report why generation failed; the screen stays as it was.
   if not text then
     return nil, constants_problem
   end
@@ -141,6 +146,7 @@ function M.generate(host, shader_directory, filter_name, settings)
   text = text:gsub("@FILTER_BODY@", function() return body end)
   local valid, problem = M.validate(text)
   if not valid then
+    -- Validation failure: the shader is not used.
     return nil, problem
   end
   return text
@@ -194,6 +200,7 @@ local function remember_user_shader(host, context, current)
       store.previous_shader = current
       state.write_previous_shader(host, context.state_directory, current)
     end
+    -- Not our shader: nothing to recover.
     return
   end
   -- Ours is active but the memory is gone (new Lua state): recover from the state file.
@@ -228,6 +235,7 @@ local function restore_user_shader(host, context, current)
     end
     store.shader_path = nil
     if not restored then
+      -- Keep the old screen state on failure.
       return { applied = false, problem = problem }
     end
   end
@@ -254,6 +262,7 @@ function M.sync(host, context)
   local current = read_active_shader(host)
   remember_user_shader(host, context, current)
   if not context.wanted then
+    -- Filter not wanted: give the screen back to the user's own shader.
     return restore_user_shader(host, context, current)
   end
   -- Build the shader text; a failure leaves the previous screen state untouched.
@@ -263,11 +272,13 @@ function M.sync(host, context)
     return { applied = false, problem = problem }
   end
   local path = util.join_path(context.state_directory, M.file_name(text))
+  -- The file must exist before Hyprland is pointed at it.
   local written, write_problem = ensure_shader_file(host, path, text)
   if not written then
     return { applied = false, problem = "cannot write shader: " .. tostring(write_problem) }
   end
   local applied, apply_problem = true, nil
+  -- Skip the option write when Hyprland already uses this file.
   if current ~= path then
     applied, apply_problem = set_screen_shader(host, path)
   end

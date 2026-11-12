@@ -55,6 +55,7 @@ local function build_entry(fields)
       return nil, "bad range '" .. entry.constraint .. "' for " .. entry.key
     end
   elseif entry.type == "enum" then
+    -- Enum values come from the constraint list.
     entry.values = util.split(entry.constraint, ",")
   end
   return entry
@@ -84,6 +85,7 @@ local function normalize_modifiers(text)
     if not util.contains(MODIFIER_ORDER, name) then
       return nil, "unknown modifier '" .. util.printable_excerpt(part) .. "'"
     end
+    -- A set, so duplicates collapse.
     wanted[name] = true
   end
   -- Emit in canonical order so equal sets always compare equal.
@@ -125,6 +127,7 @@ local function coerce_number(entry, text)
   else
     number = parse_float(text)
   end
+  -- Report the offending text (sanitised) for the warning.
   if number == nil then
     return nil, "'" .. util.printable_excerpt(text) .. "' is not a number"
   end
@@ -135,6 +138,7 @@ local function coerce_number(entry, text)
   if number < entry.min or number > entry.max then
     return nil, string.format("%s is outside %s", util.printable_excerpt(text), entry.constraint)
   end
+  -- Valid and within range.
   return number
 end
 
@@ -148,18 +152,21 @@ function M.coerce(entry, raw)
   end
   local text = util.trim(raw)
   if entry.type == "float" or entry.type == "int" then
+    -- Numbers share one validator.
     return coerce_number(entry, text)
   elseif entry.type == "bool" then
     local flag = BOOLEAN_WORDS[text:lower()]
     if flag == nil then
       return nil, "'" .. util.printable_excerpt(text) .. "' is not on/off"
     end
+    -- Canonical boolean.
     return flag
   elseif entry.type == "enum" then
     local choice = text:lower()
     if util.contains(entry.values, choice) then
       return choice
     end
+    -- List the allowed values so the user can fix the config.
     return nil, "'" .. util.printable_excerpt(text) .. "' is not one of " .. entry.constraint
   elseif entry.type == "key" then
     -- An empty key means "bind disabled".
@@ -170,6 +177,7 @@ function M.coerce(entry, raw)
   elseif entry.type == "mods" then
     return normalize_modifiers(text)
   end
+  -- A schema type this engine does not know is a contract break.
   return nil, "unsupported schema type '" .. entry.type .. "'"
 end
 
@@ -187,6 +195,7 @@ function M.parse(text)
     if content ~= "" and content:sub(1, 1) ~= "#" then
       local fields = util.split(content, "|")
       if #fields < FIELD_COUNT then
+        -- Name the line so a broken schema is easy to fix.
         return nil, string.format("schema line %d: expected %d fields", line_number, FIELD_COUNT)
       end
       local entry, build_error = build_entry(fields)
@@ -199,6 +208,7 @@ function M.parse(text)
         return nil, string.format("schema default of %s: %s", entry.key, default_error)
       end
       entry.default = default_value
+      -- Keep file order for the UI and porcelain output.
       schema.entries[#schema.entries + 1] = entry
       schema.by_key[entry.key] = entry
     end

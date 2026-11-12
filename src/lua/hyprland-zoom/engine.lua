@@ -1,4 +1,4 @@
--- engine.lua — the runtime session: settings, persistent store and every state-changing operation.
+-- engine.lua — the runtime session: settings, persistent store and all state-changing operations.
 -- api.lua exposes these as the global HyprZoom; nothing in here formats strings for users.
 -- All functions take the session explicitly (params in, results out; no module-level state).
 
@@ -10,6 +10,7 @@ local util = require("hyprland-zoom.util")
 local schema_module = require("hyprland-zoom.schema")
 local config = require("hyprland-zoom.config")
 local state = require("hyprland-zoom.state")
+-- Zoom step maths and Hyprland zoom options.
 local zoom = require("hyprland-zoom.zoom")
 local tracking = require("hyprland-zoom.tracking")
 local filter = require("hyprland-zoom.filter")
@@ -40,6 +41,7 @@ local function report_problem(session, text)
     session.host.notify("hyprland-zoom: " .. text)
   end
 end
+-- Exported so api.lua reports through the same path.
 M.report_problem = report_problem
 
 -- effective_settings — the settings that are in force right now (saved config + preview).
@@ -62,11 +64,13 @@ local function load_settings(session)
   if not schema_text then
     return nil, "settings schema not found at " .. tostring(session.layout.schema_path)
   end
+  -- A broken schema makes the engine inert, never crashes Hyprland.
   local schema, problem = schema_module.parse(schema_text)
   if not schema then
     return nil, problem
   end
   session.schema = schema
+  -- Config problems become warnings; the engine always gets usable settings.
   session.settings, session.warnings = config.load(host, schema)
   return true
 end
@@ -81,6 +85,7 @@ local function recompute_effective(session)
     if merged then
       session.effective = merged
     else
+      -- Drop the preview rather than keep half-valid overrides.
       session.overrides = nil
     end
   end
@@ -122,6 +127,7 @@ local function persist(session)
     zoom = store.zoom, saved_zoom = store.saved_zoom, filter_active = store.filter_active,
     filter = store.filter_name, instance = session.host.getenv("HYPRLAND_INSTANCE_SIGNATURE"),
   })
+  -- Persistence is best effort; tell the user once, keep running.
   if not written then
     report_problem(session, "cannot persist state: " .. tostring(problem))
   end
@@ -140,6 +146,7 @@ function M.sync_filter(session)
     end
     return { applied = false }
   end
+  -- filter.sync decides apply/restore and returns what it did.
   local result = filter.sync(session.host, {
     settings = effective,
     filter_name = M.current_filter_name(session),
@@ -183,11 +190,13 @@ local function apply_binds(session, effective)
   local signature = binds.signature(plan)
   local problems = {}
   if store.bind_signature ~= signature then
+    -- Rebinding is the expensive part, so it only happens on a changed plan.
     problems = binds.apply(host, plan, session.actions, store)
     store.bind_signature = signature
   end
   binds.ensure_settings_window_rule(host, store)
   for _, warning in ipairs(plan.warnings) do
+    -- Bind warnings join the config warnings for HyprZoom.warnings().
     session.warnings[#session.warnings + 1] = warning
   end
   return problems
@@ -201,6 +210,7 @@ function M.apply_all(session)
   local effective = M.effective_settings(session)
   local problems = apply_options(session, effective)
   for _, problem in ipairs(apply_binds(session, effective)) do
+    -- Collect the bind problems with the option problems.
     problems[#problems + 1] = problem
   end
   -- Re-assert the zoom level (a compositor reload reset it) and the filter.
@@ -208,6 +218,7 @@ function M.apply_all(session)
   M.sync_filter(session)
   persist(session)
   for _, problem in ipairs(problems) do
+    -- Each distinct problem is notified once.
     report_problem(session, problem)
   end
   return problems
@@ -223,6 +234,7 @@ local function restorable_state(session)
   end
   local saved = state.read(session.host, session.state_directory)
   local instance = session.host.getenv("HYPRLAND_INSTANCE_SIGNATURE")
+  -- The file belongs to an earlier Hyprland session: keep only the toggle memory.
   if saved.instance ~= instance then
     return { saved_zoom = saved.saved_zoom }
   end
@@ -245,12 +257,14 @@ local function initialise_runtime(session)
   store.zoom = UNZOOMED
   store.filter_active = settings.FILTER_ACTIVE
   if not settings.ZOOM_RESTORE_ON_RELOAD then
+    -- Re-run in the same Lua state: live values stay.
     return
   end
   if saved.zoom then
     store.zoom = zoom.clamp_level(saved.zoom, settings)
   end
   if saved.filter_active ~= nil then
+    -- The runtime flag beats the config default.
     store.filter_active = saved.filter_active
   end
   -- The persisted filter name must still be a valid enum value.
@@ -269,6 +283,7 @@ local function adopt_config_changes(session)
     store.filter_active = settings.FILTER_ACTIVE
   end
   if store.config_filter ~= nil and store.config_filter ~= settings.FILTER then
+    -- A changed config filter wins over a runtime selection.
     store.filter_name = nil
   end
   store.config_filter_active, store.config_filter = settings.FILTER_ACTIVE, settings.FILTER
@@ -283,6 +298,7 @@ function M.start(session)
     return nil, problem
   end
   if session.state_directory then
+    -- Create the private state directory (load time only: it spawns mkdir).
     session.host.ensure_dir(session.state_directory)
   end
   initialise_runtime(session)
@@ -304,6 +320,7 @@ function M.reload(session)
     return nil, problem
   end
   adopt_config_changes(session)
+  -- Overrides must be re-validated against the new settings.
   recompute_effective(session)
   M.apply_all(session)
   return true
@@ -328,6 +345,7 @@ function M.set_level(session, level)
   local effective = M.effective_settings(session)
   local active = M.current_filter_active(session)
   local was_wanted = filter.is_wanted(effective, active, store.zoom)
+  -- The Lua double is the authoritative zoom (Hyprland keeps float32).
   store.zoom = level
   local _, problem = zoom.apply_level(session.host, level)
   if problem then
@@ -368,6 +386,7 @@ function M.toggle_zoom(session)
   local level, saved = zoom.toggle_target(store.zoom, store.saved_zoom,
     M.effective_settings(session))
   store.saved_zoom = saved
+  -- Apply, persist and handle the filter boundary.
   return M.set_level(session, level)
 end
 
@@ -380,6 +399,7 @@ function M.reset_zoom(session)
   local level, saved = zoom.reset_target(store.zoom, store.saved_zoom,
     M.effective_settings(session))
   store.saved_zoom = saved
+  -- Apply, persist and handle the filter boundary.
   return M.set_level(session, level)
 end
 
@@ -396,17 +416,20 @@ function M.filter_action(session, action)
   elseif action == "toggle" then
     wanted_active = not M.current_filter_active(session)
   elseif util.contains(names, action) then
+    -- Selecting a filter by name also switches it on.
     wanted_active = true
     store.filter_name = action
     if session.overrides then
       session.overrides.FILTER = nil
     end
   else
+    -- The action text is untrusted; only a sanitised excerpt is echoed.
     return nil, "unknown filter action '" .. util.printable_excerpt(action) .. "'"
   end
   store.filter_active = wanted_active
   if session.overrides then
     session.overrides.FILTER_ACTIVE = nil
+    -- Overrides must be re-validated against the new settings.
     recompute_effective(session)
   end
   M.sync_filter(session)
@@ -448,12 +471,14 @@ function M.preview(session, overrides)
     combined[key] = value
   end
   for key, value in pairs(overrides) do
+    -- New values replace older previewed ones.
     combined[key] = value
   end
   local merged, problem = config.with_overrides(session.schema, session.settings, combined)
   if not merged then
     return nil, problem
   end
+  -- Commit only after the whole override set validated.
   session.overrides, session.effective = combined, merged
   schedule_preview_expiry(session)
   M.apply_all(session)
@@ -469,6 +494,7 @@ function M.preview_end(session)
   load_settings(session)
   adopt_config_changes(session)
   M.apply_all(session)
+  -- Nothing else to do: the preview is applied.
   return true
 end
 

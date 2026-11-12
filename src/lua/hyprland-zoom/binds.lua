@@ -49,6 +49,7 @@ local function same_modifiers(first, second)
   end
   for index, name in ipairs(first) do
     if second[index] ~= name then
+      -- Different lengths cannot be equal.
       return false
     end
   end
@@ -64,6 +65,7 @@ local function add_bind(plan, seen, bind)
   if seen[chord] then
     plan.warnings[#plan.warnings + 1] = "duplicate shortcut " .. bind.keys .. " ignored for "
       .. bind.action
+    -- A repeated chord is skipped; the warning above explains why.
     return
   end
   seen[chord] = true
@@ -82,6 +84,7 @@ local function add_scroll_and_mouse_binds(plan, seen, settings, modifier_text)
       description = "Zoom out" })
   end
   if settings.BIND_MOUSE_TOGGLE then
+    -- Middle click toggles the zoom (C7).
     add_bind(plan, seen, { keys = modifier_text .. " + " .. MIDDLE_MOUSE_KEY, action = "toggle",
       description = "Toggle zoom" })
   end
@@ -121,6 +124,7 @@ function M.plan(settings, omarchy_present)
         repeating = spec.repeating, description = spec.description })
     end
   end
+  -- Takeover only makes sense on Omarchy and only when the user wants it (E11).
   if settings.BIND_TAKEOVER_OMARCHY and omarchy_present then
     plan_takeover(plan, seen, settings, modifier_text)
   end
@@ -137,6 +141,7 @@ function M.signature(plan)
     parts[#parts + 1] = bind.keys .. "=" .. bind.action .. (bind.repeating and "*" or "")
   end
   parts[#parts + 1] = "unbind:" .. table.concat(plan.unbind, ",")
+  -- One comparable string per plan.
   return table.concat(parts, ";")
 end
 
@@ -176,11 +181,13 @@ function M.apply(host, plan, actions, store)
       problems[#problems + 1] = "unbind " .. chord .. ": " .. tostring(problem)
     end
   end
+  -- Bind every planned chord; one failure must not stop the others.
   for _, bind in ipairs(plan.binds) do
     local action = build_action(host, bind.action, actions)
     local options = { description = "hyprland-zoom: " .. bind.description,
       repeating = bind.repeating or nil }
     local bound, handle = pcall(host.hl.bind, bind.keys, action, options)
+    -- Keep the handle so the next apply can remove exactly our binds.
     if bound then
       store.bind_handles[#store.bind_handles + 1] = handle
     else

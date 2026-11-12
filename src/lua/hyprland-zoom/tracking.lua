@@ -32,6 +32,7 @@ function M.plugin_loaded(host)
     return false
   end
   for _, plugin in ipairs(plugins) do
+    -- Match the plugin by its registered name.
     if plugin.name == PLUGIN_NAME then
       return true
     end
@@ -56,6 +57,7 @@ function M.resolve(settings, plugin_loaded)
   elseif effective == "edge" then
     edge_margin = M.NATIVE_EDGE_MARGIN
   end
+  -- The resolved behaviour, one table for status and apply.
   return {
     configured = configured,
     effective = effective,
@@ -78,6 +80,7 @@ local function apply_plugin_options(host, resolved)
   if not applied then
     return nil, tostring(problem)
   end
+  -- Plugin options accepted (or queued until the plugin loads).
   return true
 end
 

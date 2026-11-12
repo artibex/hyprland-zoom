@@ -24,6 +24,7 @@ local function guarded(session, name, body)
     end
     local succeeded, result = pcall(body, session, ...)
     if succeeded then
+      -- Success: hand the body's string straight back to the caller.
       return result
     end
     -- A Lua error in a bind callback must not reach Hyprland; log, notify once, return text.
@@ -43,6 +44,7 @@ local function parse_notches(value)
   if type(value) ~= "number" or value ~= value or value <= 0 then
     return nil, "notches must be a positive number"
   end
+  -- Cap absurd counts so one call cannot spin the compositor.
   return math.min(value, zoom.MAX_NOTCHES)
 end
 
@@ -114,6 +116,7 @@ local function filter_result(session, action)
     return "error=" .. problem
   end
   local active = engine.current_filter_active(session) and "on" or "off"
+  -- Short, parseable result for `hyprctl repl`.
   return "filter=" .. engine.current_filter_name(session) .. " active=" .. active
 end
 
@@ -173,6 +176,7 @@ local function status_text(session)
   local effective = engine.effective_settings(session)
   local resolved = session.tracking or tracking.resolve(effective, false)
   local hyprland_version = select(2, pcall(host.hl.version))
+  -- Report what Hyprland really holds, not just what we asked for.
   local applied_delay = select(2, pcall(host.hl.get_config, "binds.scroll_event_delay"))
   local fields = {
     { "engine", "lua" }, { "version", M.VERSION }, { "hyprland", tostring(hyprland_version) },
@@ -189,6 +193,7 @@ local function status_text(session)
   }
   local lines = {}
   for _, field in ipairs(fields) do
+    -- One key=value line per field, in contract order.
     lines[#lines + 1] = field[1] .. "=" .. field[2]
   end
   return table.concat(lines, "\n")
@@ -233,11 +238,13 @@ function M.install(api, host, layout)
       return "engine=lua\nerror=" .. tostring(session.start_problem)
     end
     local succeeded, text = pcall(status_text, session)
+    -- A failing status must still answer with a string.
     return succeeded and text or ("error=" .. util.printable_excerpt(text, 120))
   end
   session.actions = define_actions(api)
   local started, problem = engine.start(session)
   session.ready, session.start_problem = started == true, problem
+  -- Tell the user once why the engine is inert; its API keeps answering with errors.
   if not started then
     engine.report_problem(session, "engine not started: " .. tostring(problem))
   end

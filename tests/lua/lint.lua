@@ -72,6 +72,7 @@ local function is_closer_only(code)
   return code:match("^end[%)%},;]*$") ~= nil or code:match("^[%)%}%]]+[,;]*$") ~= nil
     or code == "else" or code:match("^until") ~= nil or code:match("^elseif ") ~= nil
     or code:match("^local function ") ~= nil or code:match("^function ") ~= nil
+    or code:match("^or ") ~= nil or code:match("^and ") ~= nil or code == "return M"
 end
 
 -- M.check_file — lint one Lua file.

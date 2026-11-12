@@ -65,6 +65,7 @@ function M.clamp(value, lowest, highest)
   if value > highest then
     return highest
   end
+  -- Inside the range already.
   return value
 end
 
@@ -110,6 +111,7 @@ function M.sorted_keys(map)
     keys[#keys + 1] = key
   end
   table.sort(keys)
+  -- Sorted, so iteration order is deterministic.
   return keys
 end
 
@@ -162,6 +164,7 @@ function M.to_raw_value(value)
   if type(value) == "number" then
     return string.format("%.4f", value)
   end
+  -- Strings (and anything else) pass through as text.
   return tostring(value)
 end
 

@@ -41,6 +41,7 @@ function M.config_paths(host)
   if not config_home and home then
     config_home = home .. "/.config"
   end
+  -- Without HOME and XDG_CONFIG_HOME there is no user layer.
   return system_path, config_home and (config_home .. "/zoomctl/zoom.conf") or nil
 end
 
@@ -64,6 +65,7 @@ local function parse_layer_text(text)
       end
     end
   end
+  -- Later lines of the same key already won inside the map.
   return raw
 end
 
@@ -138,6 +140,7 @@ local function load_layer(host, path)
     return nil
   end
   local raw = parse_layer_text(text)
+  -- Translate 0.1 keys before validation.
   upgrade_legacy_layer(raw)
   return raw
 end
@@ -151,12 +154,14 @@ function M.load(host, schema)
   local warnings = {}
   local system_path, user_path = M.config_paths(host)
   for _, layer in ipairs({ { "system", system_path }, { "user", user_path } }) do
+    -- A missing file just means no overrides.
     local raw = load_layer(host, layer[2])
     if raw then
       apply_layer(schema, settings, raw, layer[1] .. " config", warnings)
     end
   end
   M.enforce_zoom_bounds(schema, settings, warnings)
+  -- Warnings are returned, never raised (C2).
   return settings, warnings
 end
 
@@ -171,6 +176,7 @@ function M.with_overrides(schema, settings, overrides)
     merged[key] = value
   end
   for _, key in ipairs(util.sorted_keys(overrides)) do
+    -- Unknown keys are rejected before any value is read.
     local entry = schema.by_key[key]
     if not entry then
       return nil, "unknown setting " .. util.printable_excerpt(key)
@@ -182,6 +188,7 @@ function M.with_overrides(schema, settings, overrides)
     end
     merged[key] = value
   end
+  -- Keep the cross-field rule true for previews too; its warnings are not needed here.
   M.enforce_zoom_bounds(schema, merged, {})
   return merged
 end
