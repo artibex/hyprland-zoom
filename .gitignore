@@ -1,4 +1,5 @@
 /pkg/
+/public/
 *.pkg.tar.*
 *.tar.gz
 tests/integration/work/

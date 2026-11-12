@@ -1,13 +1,29 @@
 pkgbase = hyprland-zoom
-	pkgdesc = Shell-based zoom controller and bindings for Hyprland
-	pkgver = 0.1.0
-	pkgrel = 9
+	pkgdesc = Accessibility screen zoom for Hyprland: pointer tracking, colour filters, settings app
+	pkgver = 0.2.0
+	pkgrel = 1
 	url = https://github.com/artibex/hyprland-zoom
 	install = install/post_install.sh
 	arch = any
 	license = MIT
+	checkdepends = lua
 	depends = bash
-	depends = hyprland
+	depends = coreutils
+	depends = gawk
+	depends = grep
+	depends = gtk4
+	depends = hyprland>=0.55
+	depends = libadwaita
+	depends = python
+	depends = python-gobject
+	depends = sed
+	depends = util-linux
+	optdepends = hyprpm: build and load the optional hyprzoom plugin (adjustable pointer margin)
+	optdepends = cmake: plugin build through hyprpm
+	optdepends = meson: plugin build through hyprpm
+	optdepends = cpio: plugin build through hyprpm
+	optdepends = gcc: plugin build through hyprpm
+	optdepends = pkgconf: plugin build through hyprpm
 	backup = etc/zoomctl.conf
 
 pkgname = hyprland-zoom

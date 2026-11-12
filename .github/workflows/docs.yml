@@ -1,0 +1,62 @@
+name: Documentation
+
+# Builds the generated technical documentation (tools/techdoc) on every push and keeps it as a
+# workflow artifact; pushes to main and beta publish it on GitHub Pages
+# (https://artibex.github.io/hyprland-zoom/). Rule violations never fail the build: the gate
+# is `make qa` in the CI workflow, the verdict is also shown on the quality page.
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Generate the site (the build reads GITHUB_SHA and GITHUB_REF_NAME for its header)
+        run: make docs DOCS_OUT=public
+      - name: The site must have an entry page
+        run: test -s public/index.html
+      - name: Keep the site as an artifact for every branch
+        uses: actions/upload-artifact@v4
+        with:
+          name: technical-documentation
+          path: public
+          retention-days: 30
+      - name: Prepare the Pages upload (main and beta only)
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/beta'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: public
+
+  deploy:
+    name: Publish on GitHub Pages
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/beta')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
