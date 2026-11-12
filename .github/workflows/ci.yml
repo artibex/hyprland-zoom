@@ -96,7 +96,9 @@ jobs:
       - name: namcap (errors fail the job, warnings are listed)
         run: |
           namcap "$GITHUB_WORKSPACE/PKGBUILD" /tmp/hzoom-pkg/*.pkg.tar.zst | tee /tmp/namcap.log
-          ! grep -E ' E: ' /tmp/namcap.log
+          # The in-repo PKGBUILD builds from its own checkout ($startdir) on purpose; every
+          # other error fails the job.
+          ! grep -E ' E: ' /tmp/namcap.log | grep -v 'File referenced in \$startdir'
       - name: Install the built package with pacman and run it
         run: |
           pacman -U --noconfirm /tmp/hzoom-pkg/*.pkg.tar.zst

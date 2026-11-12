@@ -10,8 +10,10 @@ pkgbase = hyprland-zoom
 	depends = bash
 	depends = coreutils
 	depends = gawk
+	depends = glib2
 	depends = grep
 	depends = gtk4
+	depends = hicolor-icon-theme
 	depends = hyprland>=0.55
 	depends = libadwaita
 	depends = python

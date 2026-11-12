@@ -6,9 +6,11 @@ State lives in the directory named by FAKE_ZOOMCTL_STATE:
   overrides.json  canned answers [{"match": [...argv prefix], "stdout", "stderr", "rc", "sleep"}]
   config.json     user overrides written by ``set``
   status.json     status fields (zoom, engine, ...) changed by ``zoom``/``setup``/``preview``
+  busy.lock       held shared while a fake runs, so test cleanup can wait for stragglers
 """
 
-# json stores state, os reads the environment, sys handles argv and exit codes.
+# fcntl marks a running fake, json stores state, os reads the environment, sys handles argv.
+import fcntl
 import json
 import os
 import sys
@@ -281,6 +283,9 @@ def main():
         Never returns (exits through emit).
     """
     argv = sys.argv[1:]
+    # A shared lock held until exit tells test cleanup that this fake is still writing.
+    busy_lock = open(state_path("busy.lock"), "a", encoding="utf-8")
+    fcntl.flock(busy_lock, fcntl.LOCK_SH)
     # The call log lets tests assert exactly what the GUI asked for.
     with open(state_path("calls.jsonl"), "a", encoding="utf-8") as log:
         log.write(json.dumps(argv) + "\n")
