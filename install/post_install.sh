@@ -7,7 +7,7 @@
 # (or anything else the package ships) still being present when it runs.
 #
 # Keep the block below byte-identical to the one in src/lib/setup.sh;
-# tests/setup.sh fails when the copies drift apart. To refresh it, copy the
+# tests/test-setup.sh fails when the copies drift apart. To refresh it, copy the
 # lines from the begin marker to the end marker of that file over this block.
 
 # ---- shared wiring block: begin ----

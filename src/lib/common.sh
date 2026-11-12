@@ -91,7 +91,7 @@ zoomctl_run_locked() {
 
 # zoomctl_version — print the package version from the VERSION file (single source).
 # Args:    none
-# Returns: 0 always; stdout: for example 0.2.0, or "unknown" when no VERSION file is found
+# Returns: 0 always; stdout: the version text, or "unknown" when no VERSION file is found
 # Globals: reads ZOOMCTL_SHARE_DIR, ZOOMCTL_SCRIPT_DIR
 zoomctl_version() {
   local candidate version_text

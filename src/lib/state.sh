@@ -63,12 +63,16 @@ zoomctl_state_write() {
   local state_directory draft_file
   state_directory="$(zoomctl_state_dir)"
   # The runtime directory is gone after a reboot, so make sure it exists.
-  zoomctl_state_ensure_dir || return 1
-  draft_file="$(mktemp "$state_directory/.state.XXXXXX")" || return 1
+  zoomctl_state_ensure_dir ||
+    { zoomctl_error "cannot create the state directory $state_directory"; return 1; }
+  draft_file="$(mktemp "$state_directory/.state.XXXXXX")" ||
+    { zoomctl_error "cannot write in the state directory $state_directory"; return 1; }
   # The old keys first, then the new value.
-  { zoomctl_state_copy_without "$1"; printf '%s=%s\n' "$1" "$2"; } > "$draft_file"
+  { zoomctl_state_copy_without "$1"; printf '%s=%s\n' "$1" "$2"; } > "$draft_file" ||
+    { rm -f -- "$draft_file"; zoomctl_error "cannot write the zoom state"; return 1; }
   # Same-directory rename keeps the replacement atomic for the engine reading it.
-  mv -f -- "$draft_file" "$state_directory/state" || { rm -f -- "$draft_file"; return 1; }
+  mv -f -- "$draft_file" "$state_directory/state" ||
+    { rm -f -- "$draft_file"; zoomctl_error "cannot replace the zoom state"; return 1; }
 }
 
 # zoomctl_state_delete — remove one key from the state file.
