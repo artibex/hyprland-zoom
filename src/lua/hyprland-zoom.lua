@@ -41,7 +41,8 @@ local function installed_layout(share_directory)
   end
   return { modules_root = share_directory .. "/lua",
     schema_path = share_directory .. "/settings.schema",
-    shader_directory = share_directory .. "/shaders" }
+    shader_directory = share_directory .. "/shaders",
+    version_path = share_directory .. "/VERSION" }
 end
 
 -- checkout_layout — the layout of a repository checkout (src/lua next to config/ and shaders).
@@ -54,12 +55,13 @@ local function checkout_layout(entry_directory)
   end
   return { modules_root = entry_directory,
     schema_path = entry_directory .. "/../../config/settings.schema",
-    shader_directory = entry_directory .. "/../shaders" }
+    shader_directory = entry_directory .. "/../shaders",
+    version_path = entry_directory .. "/../../VERSION" }
 end
 
 -- resolve_layout — find modules, schema and shaders.
 -- Args:    none
--- Returns: layout table {modules_root, schema_path, shader_directory}; nil when nothing is found
+-- Returns: layout table {modules_root, schema_path, shader_directory, version_path}; nil if none
 local function resolve_layout()
   -- Order: explicit override, the file's own location (installed, then checkout), default path.
   local override = os.getenv("ZOOMCTL_SHARE_DIR")

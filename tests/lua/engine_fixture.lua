@@ -39,14 +39,17 @@ local function load_shareable_files(host, root)
     host.files[SHARE_DIRECTORY .. "/shaders/" .. name .. ".glsl"] =
       read_repository_file(root, "src/shaders/" .. name .. ".glsl")
   end
+  -- The version file of the checkout is copied too, so status can report it.
+  host.files[SHARE_DIRECTORY .. "/VERSION"] = read_repository_file(root, "VERSION")
   return { schema_path = SHARE_DIRECTORY .. "/settings.schema",
-    shader_directory = SHARE_DIRECTORY .. "/shaders" }
+    shader_directory = SHARE_DIRECTORY .. "/shaders",
+    version_path = SHARE_DIRECTORY .. "/VERSION" }
 end
 
 -- M.new — create a host, an engine and return both.
 -- Args:    root string (repository root); options table: user_config, system_config,
 --          plugin_loaded, omarchy, instance, previous (host whose files survive a "reload"),
---          without_schema (boolean)
+--          without_schema (boolean), files (map path -> text added to the fake filesystem)
 -- Returns: api table (HyprZoom), host table, layout table
 function M.new(root, options)
   options = options or {}
@@ -64,6 +67,10 @@ function M.new(root, options)
   end
   host.files[M.USER_CONFIG] = options.user_config or host.files[M.USER_CONFIG]
   host.files[M.SYSTEM_CONFIG] = options.system_config or host.files[M.SYSTEM_CONFIG]
+  -- Extra files such as another tool's bind file (collision detection reads them).
+  for path, text in pairs(options.files or {}) do
+    host.files[path] = text
+  end
   local api = api_module.install({}, host, layout)
   return api, host, layout
 end

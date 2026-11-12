@@ -230,3 +230,50 @@ T.case("the settings window rule is registered once, floating and centred", func
   T.eq(rule.match.class, "^io\\.github\\.artibex\\.HyprlandZoom$")
   T.eq({ rule.float, rule.center }, { true, true })
 end)
+
+T.case("the Omarchy takeover unbinds every planned chord BEFORE the first bind (E11)", function()
+  -- Without the unbind, Omarchy's bind and ours would both fire on the same chord.
+  local host = stub_host.new()
+  local plan = binds.plan(default_settings(), true)
+  binds.apply(host, plan, recording_actions({}), {})
+  T.eq(host.record.unbinds, plan.unbind)
+  T.truthy(#plan.unbind > 0)
+  local seen_bind = false
+  for _, event in ipairs(host.record.bind_events) do
+    if event[1] == "bind" then
+      seen_bind = true
+    end
+    T.truthy(not (seen_bind and event[1] == "unbind"), "an unbind came after a bind")
+  end
+end)
+
+T.case("a failing unbind of an Omarchy chord is reported, not swallowed", function()
+  -- The takeover must be visible in `zoomctl doctor` when it did not work.
+  local host = stub_host.new()
+  host.record.fail_unbind = true
+  local plan = binds.plan(default_settings(), true)
+  local problems = binds.apply(host, plan, recording_actions({}), {})
+  T.eq(#problems, #plan.unbind)
+  T.contains(problems[1], "unbind ")
+end)
+
+T.case("an engine bind that someone else unbound is never remove()d (R-P1a-02)", function()
+  -- Hyprland 0.56.2 crashes on remove() of an expired handle; the fake counts such a call.
+  local host, store = stub_host.new(), {}
+  binds.apply(host, binds.plan(default_settings(), false), recording_actions({}), store)
+  -- A user script frees one of our chords: its handle expires.
+  host.hl.unbind("SUPER + ALT + I")
+  T.eq(tostring(store.bind_handles[4]), "HL.Keybind(expired)")
+  -- The next plan differs, so the engine rebinds everything.
+  binds.apply(host, binds.plan(default_settings({ BIND_KEY_IN = "K" }), false),
+    recording_actions({}), store)
+  T.eq(host.record.expired_calls, 0)
+  T.eq(#stub_host.live_chords(host), 8)
+end)
+
+T.case("a bind description says color (E13, US English)", function()
+  -- The text shows up in Hyprland's keybind menus.
+  local map = chord_map(binds.plan(default_settings(), false))
+  T.eq(map["SUPER + ALT + C"].description, "Toggle color filter")
+end)
+

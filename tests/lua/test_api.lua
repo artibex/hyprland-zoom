@@ -198,15 +198,19 @@ T.case("FILTER_ONLY_WHEN_ZOOMED switches the shader at the 1.0 boundary", functi
   T.eq(host.record.config["decoration.screen_shader"], "")
 end)
 
-T.case("a zoom-in during the zoom-out animation cancels the pending filter release", function()
-  -- Out, in again, then the first timer fires: the filter must still be on.
+T.case("only the newest zoom-out may release the filter (older timers are cancelled)", function()
+  -- out, in, out again: the first timer fires while the second animation still runs.
   local api, host = new_engine({ user_config = "FILTER_ONLY_WHEN_ZOOMED=on\n" })
   api.filter("on")
   api.zoom_in()
   api.reset()
   api.zoom_in()
-  host.run_timers()
-  T.truthy(status_of(api).filter_shader ~= "none")
+  api.reset()
+  T.eq(#host.timers, 2)
+  host.timers[1].callback()
+  T.truthy(status_of(api).filter_shader ~= "none", "an outdated timer released the filter")
+  host.timers[2].callback()
+  T.eq(status_of(api).filter_shader, "none")
 end)
 
 T.case("the filter release waits for the zoom animation (speed x 100 ms + margin)", function()
@@ -414,3 +418,137 @@ T.case("notifications are not repeated for the same problem", function()
   end
   T.eq(#host.record.notifications - before, 1)
 end)
+
+-- plugin_settings — user config that asks for the margin mode.
+local MARGIN_CONFIG = "ZOOM_TRACKING=margin\nZOOM_EDGE_MARGIN=0.30\n"
+
+T.case("without the plugin no operation produces a config error (R-P1a-01, R-P2-01)", function()
+  -- Load, reload, set, preview, zoom, filter: the compositor must never see an unknown key.
+  local api, host = new_engine({ user_config = MARGIN_CONFIG })
+  T.eq(host.record.config_errors, {})
+  api.reload()
+  api.preview({ ZOOM_TRACKING = "margin", ZOOM_EDGE_MARGIN = "0.20" })
+  api.preview_end()
+  api.zoom_in()
+  api.filter("on")
+  api.set_zoom(2, false)
+  T.eq(host.record.config_errors, {})
+  T.eq(status_of(api).tracking_effective, "edge")
+end)
+
+T.case("with the plugin the margin is applied and still no config error", function()
+  -- The plugin keys exist, so setting them is valid.
+  local api, host = new_engine({ user_config = MARGIN_CONFIG, plugin_loaded = true })
+  T.eq(host.record.config["plugin.hyprzoom.edge_margin"], 0.3)
+  T.eq(status_of(api).tracking_effective, "margin")
+  T.eq(host.record.config_errors, {})
+end)
+
+T.case("a plugin loaded after the engine activates the margin on the next event (R-P1a-03)", function()
+  -- Engine first, plugin later: hyprland.start / config.reloaded re-apply without a manual reload.
+  local api, host = new_engine({ user_config = MARGIN_CONFIG })
+  T.eq(status_of(api).plugin, "missing")
+  host.set_plugin({ listed = true, config = true })
+  host.emit("config.reloaded")
+  local status = status_of(api)
+  T.eq({ status.plugin, status.tracking_effective, status.edge_margin }, { "loaded", "margin", "0.30" })
+  T.eq(host.record.config["plugin.hyprzoom.enabled"], true)
+end)
+
+T.case("an unloaded plugin falls back to edge on the next event without config errors", function()
+  -- Plugin gone again: status says so and nothing tries to set its removed keys.
+  local api, host = new_engine({ user_config = MARGIN_CONFIG, plugin_loaded = true })
+  host.set_plugin({ listed = false, config = false })
+  host.emit("hyprland.start")
+  T.eq(status_of(api).tracking_effective, "edge")
+  T.eq(status_of(api).plugin, "missing")
+  T.eq(host.record.config_errors, {})
+end)
+
+T.case("an event without a plugin change does not re-apply anything", function()
+  -- config.reloaded fires on every reload; the refresh must be cheap when nothing changed.
+  local _, host = new_engine({ user_config = MARGIN_CONFIG })
+  local calls_before = #host.record.config_calls
+  host.emit("config.reloaded")
+  T.eq(#host.record.config_calls, calls_before)
+end)
+
+T.case("running the install again in the same Lua state registers the events only once", function()
+  -- Two handlers would double the work of every reload.
+  local api, host, layout = new_engine()
+  require("hyprland-zoom.api").install(api, host, layout)
+  T.eq(#host.record.handlers["config.reloaded"], 1)
+  T.eq(#host.record.handlers["hyprland.start"], 1)
+end)
+
+T.case("repeated previews do not pile up bind warnings (R-P1a-06)", function()
+  -- Three previews of the same duplicate shortcut produce one warning line, none after the end.
+  local api = new_engine()
+  for _ = 1, 3 do
+    api.preview({ BIND_KEY_OUT = "I" })
+  end
+  local _, count = api.warnings():gsub("duplicate shortcut", "")
+  T.eq(count, 1)
+  api.preview_end()
+  T.eq(api.warnings(), "none")
+end)
+
+T.case("a shortcut another tool binds is reported through warnings() (R-P1a-09)", function()
+  -- The user's bindings.lua already uses SUPER+ALT+I; both would run.
+  local api = new_engine({ files = {
+    ["/home/test/.config/hypr/bindings.lua"] = 'hl.bind("SUPER + ALT + I", my_function)\n' } })
+  T.contains(api.warnings(), "SUPER + ALT + I is also bound in your hypr/bindings.lua")
+end)
+
+T.case("reload adopts a zoom another tool set instead of overwriting it (R-P1a-07)", function()
+  -- Omarchy's own bind or `hyprctl keyword` changed the zoom behind the engine's back.
+  local api, host = new_engine()
+  api.zoom_in()
+  host.hl.config({ cursor = { zoom_factor = 3.0 } })
+  api.reload()
+  T.eq(status_of(api).zoom, "3.00")
+  T.near(host.record.config["cursor.zoom_factor"], 3.0, 1e-6)
+  host.hl.config({ cursor = { zoom_factor = 2.0 } })
+  api.preview({ ZOOM_STEP = "0.50" })
+  T.eq(status_of(api).zoom, "2.00")
+end)
+
+T.case("set_zoom(factor, false) is transient: saved_zoom stays untouched (C3)", function()
+  -- A UI test zoom must not change where the toggle returns to.
+  local api = new_engine()
+  api.set_zoom(3)
+  api.reset()
+  T.eq(status_of(api).saved_zoom, "3.00")
+  api.set_zoom(2, false)
+  T.eq(status_of(api).saved_zoom, "3.00")
+  api.set_zoom(1.5, false)
+  T.eq(status_of(api).saved_zoom, "3.00")
+  T.eq(status_of(api).zoom, "1.50")
+end)
+
+T.case("set_zoom without the flag remembers the level it leaves, like reset", function()
+  -- Default is remember=true: 3 -> 2 keeps 3 for the toggle; leaving 1.0 keeps what was there.
+  local api = new_engine()
+  api.set_zoom(3)
+  api.set_zoom(2)
+  T.eq(status_of(api).saved_zoom, "3.00")
+  api.set_zoom(1)
+  T.eq(status_of(api).saved_zoom, "2.00")
+  api.set_zoom(4)
+  T.eq(status_of(api).saved_zoom, "2.00")
+  T.contains(api.set_zoom(2, "yes"), "error=remember must be true or false")
+end)
+
+T.case("status reports the version of the VERSION file; a missing file says unknown", function()
+  -- The version has one source (E3-style): the repository's VERSION file.
+  local handle = assert(io.open(T.repository_root .. "/VERSION", "rb"))
+  local file_version = handle:read("a"):match("%S+")
+  handle:close()
+  T.eq(status_of(new_engine()).version, file_version)
+  local api_module = require("hyprland-zoom.api")
+  T.eq(api_module.read_version({ read_file = function() return nil end }, "/x"), "unknown")
+  T.eq(api_module.read_version({ read_file = function() return "not a version!\n" end }, "/x"),
+    "unknown")
+  T.eq(api_module.read_version({ read_file = function() return "1.2.3\n" end }, "/x"), "1.2.3")
+end)
+

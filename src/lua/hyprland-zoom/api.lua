@@ -10,8 +10,18 @@ local engine = require("hyprland-zoom.engine")
 local tracking = require("hyprland-zoom.tracking")
 local zoom = require("hyprland-zoom.zoom")
 
--- Package version reported by status().
-M.VERSION = "0.2.0"
+-- Version shown when the VERSION file is missing or unreadable.
+M.UNKNOWN_VERSION = "unknown"
+
+-- M.read_version — read the package version from the VERSION file (single source of truth).
+-- Args:    host platform adapter; version_path string or nil
+-- Returns: version string such as "0.2.0"; "unknown" when the file is missing or malformed
+function M.read_version(host, version_path)
+  local text = version_path and host.read_file(version_path)
+  -- Only a plain version token is shown; anything else would be noise in status output.
+  local version = text and text:match("^%s*([%w%.%-%+]+)%s*$")
+  return version or M.UNKNOWN_VERSION
+end
 
 -- guarded — wrap an API body so errors become "error=<text>" strings.
 -- Args:    session table; name string (for messages); body function(session, ...)
@@ -184,7 +194,7 @@ local function status_text(session)
   -- Report what Hyprland really holds, not just what we asked for.
   local applied_delay = select(2, pcall(host.hl.get_config, "binds.scroll_event_delay"))
   local fields = {
-    { "engine", "lua" }, { "version", M.VERSION }, { "hyprland", tostring(hyprland_version) },
+    { "engine", "lua" }, { "version", session.version }, { "hyprland", tostring(hyprland_version) },
     { "zoom", string.format("%.2f", store.zoom) },
     { "saved_zoom", string.format("%.2f", store.saved_zoom or effective.ZOOM_RESET) },
     { "tracking", resolved.configured }, { "tracking_effective", resolved.effective },
@@ -229,13 +239,15 @@ end
 
 -- M.install — build the session, define the API on `api` and start the engine.
 -- Args:    api table (the global HyprZoom, reused across re-runs); host adapter;
---          layout {schema_path, shader_directory}
+--          layout {schema_path, shader_directory, version_path}
 -- Returns: the api table
 function M.install(api, host, layout)
   -- The persistent store survives re-running the entry file inside one Lua state.
   api._store = api._store or {}
   local session = engine.new_session(host, layout, api._store)
   api._session = session
+  -- The version comes from the VERSION file next to the engine (single source of truth).
+  session.version = M.read_version(host, layout.version_path)
   define_functions(api, session)
   -- status works even when the engine failed to start, so zoomctl doctor can explain why.
   api.status = function()
