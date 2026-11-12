@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# testlib.sh — minimal assertion framework and sandbox for the zoomctl bash suites.
+# test-lib.sh — minimal assertion framework and sandbox for the zoomctl bash suites.
 # A suite sources this file, calls test_init, runs assertions, then test_finish.
 # The sandbox never touches the real user config, runtime dir or compositor: zoomctl runs with
 # `env -i`, a fake hyprctl first on PATH, and every ZOOMCTL_* path inside a temp directory.

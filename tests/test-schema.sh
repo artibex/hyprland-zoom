@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# schema.sh — suite: schema parsing, aliases, every validator, committed generated files.
+# test-schema.sh — suite: schema parsing, aliases, every validator, committed generated files.
 set -u
 
-source "$(dirname -- "${BASH_SOURCE[0]}")/lib/testlib.sh"
+source "$(dirname -- "${BASH_SOURCE[0]}")/lib/test-lib.sh"
 test_init schema
 load_zoomctl_libs
 

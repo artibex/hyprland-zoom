@@ -39,6 +39,7 @@ done
 main() {
   local command="${1:-help}"
   [ "$#" -eq 0 ] || shift
+  # One arm per command; every arm only calls its command_* function.
   case "$command" in
     in|zoom-in) zoomctl_command_in "$@" ;;  # zoom in by n steps
     out|zoom-out) zoomctl_command_out "$@" ;;  # zoom out by n steps

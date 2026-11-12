@@ -76,9 +76,11 @@ zoomctl_schema_parse_line() {
   ZOOMCTL_SCHEMA_KEYS+=("$key")
   ZOOMCTL_SCHEMA_TYPE[$key]="$type"
   ZOOMCTL_SCHEMA_DEFAULT[$key]="$default_value"
+  # Constraint, group, label and help complete the row.
   ZOOMCTL_SCHEMA_CONSTRAINT[$key]="$constraint"
   ZOOMCTL_SCHEMA_GROUP[$key]="$group"
   ZOOMCTL_SCHEMA_LABEL[$key]="$label"
+  # Label and help text feed the template and the settings UI.
   ZOOMCTL_SCHEMA_HELP[$key]="$help"
   zoomctl_schema_register_aliases "$key"
 }
@@ -135,6 +137,7 @@ zoomctl_schema_allowed_text() {
   case "${ZOOMCTL_SCHEMA_TYPE[$1]}" in
     float|int) printf 'a number from %s to %s\n' "${constraint%%..*}" "${constraint#*..}" ;;
     bool) printf 'on or off\n' ;;
+    # Enum members are listed in schema order.
     enum) printf 'one of: %s\n' "${constraint//,/, }" ;;
     key) printf 'a Hyprland key name such as I, F5 or mouse:274; empty disables the bind\n' ;;
     mods) printf 'modifiers joined with " + " from: SUPER, SHIFT, CTRL, ALT\n' ;;

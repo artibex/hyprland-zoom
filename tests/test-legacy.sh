@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# legacy.sh — suite: the bash fallback (E8): option strings, step math, toggle/reset/clamp,
+# test-legacy.sh — suite: the bash fallback (E8): option strings, step math, toggle/reset/clamp,
 # state file, and the flock race proof (with a mutation that must make the race visible).
 set -u
 
-source "$(dirname -- "${BASH_SOURCE[0]}")/lib/testlib.sh"
+source "$(dirname -- "${BASH_SOURCE[0]}")/lib/test-lib.sh"
 test_init legacy
 
 # fake_zoom — print the zoom the fake compositor currently holds, two decimals.

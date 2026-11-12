@@ -7,10 +7,9 @@ ZOOMCTL_PROBE=''
 
 # zoomctl_hyprland_probe — find out what answers behind hyprctl (cached per process).
 # Args:    none
-# Returns: 0 always; no stdout; sets ZOOMCTL_PROBE:
-#          engine = Lua config and HyprZoom loaded; lua-no-engine = Lua config, engine absent;
-#          hyprlang = legacy config; unreachable = no hyprctl or no Hyprland instance
+# Returns: 0 always; no stdout; sets ZOOMCTL_PROBE to engine|lua-no-engine|hyprlang|unreachable
 # Globals: reads/writes ZOOMCTL_PROBE
+# Notes:   engine = HyprZoom loaded; lua-no-engine = Lua config without it; unreachable = no hyprctl
 zoomctl_hyprland_probe() {
   local answer
   [ -z "$ZOOMCTL_PROBE" ] || return 0
@@ -21,9 +20,11 @@ zoomctl_hyprland_probe() {
     ZOOMCTL_PROBE='unreachable'
     return 0
   }
+  # The reply tells the three compositor states apart.
   case "$answer" in
     table) ZOOMCTL_PROBE='engine' ;;
     nil) ZOOMCTL_PROBE='lua-no-engine' ;;
+    # Legacy Hyprland refuses eval with a text message instead of answering nil.
     *) ZOOMCTL_PROBE='hyprlang' ;;
   esac
 }
@@ -37,6 +38,7 @@ zoomctl_hyprland_eval() {
   # hyprctl exits 0 on a legacy config, so the "ok" answer is the only success signal.
   answer="$(hyprctl eval "$1" 2>&1)"
   [ "$answer" = 'ok' ] && return 0
+  # Hand the error text to the caller, which decides whether to show it.
   printf '%s\n' "$answer"
   return 1
 }
@@ -48,6 +50,7 @@ zoomctl_hyprland_eval() {
 zoomctl_hyprland_option_number() {
   local answer number
   command -v hyprctl >/dev/null 2>&1 || return 1
+  # An unknown option or a missing instance makes hyprctl fail.
   answer="$(hyprctl -j getoption "$1" 2>/dev/null)" || return 1
   # The JSON carries the value under "float" or "int" depending on the option type.
   number="$(printf '%s\n' "$answer" | sed -n 's/.*"\(float\|int\)": *\(-\?[0-9.]\+\).*/\2/p')"
@@ -62,8 +65,10 @@ zoomctl_hyprland_option_number() {
 zoomctl_hyprland_version() {
   local answer version
   command -v hyprctl >/dev/null 2>&1 || return 1
+  # Without a running instance hyprctl fails; report the version as unavailable.
   answer="$(hyprctl -j version 2>/dev/null)" || return 1
   version="$(printf '%s\n' "$answer" | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1)"
+  # An answer without a version field counts as unavailable.
   [ -n "$version" ] || return 1
   printf '%s\n' "$version"
 }

@@ -27,9 +27,7 @@ zoomctl_validate_float() {
 # Returns: 0 valid; 1 not an integer or out of range; stdout: canonical integer
 # Globals: none
 zoomctl_validate_int() {
-  local constraint="$1"
-  local value="$2"
-  local number
+  local constraint="$1" value="$2" number
   # Only plain decimal integers; the digit limit prevents arithmetic overflow.
   [[ "$value" =~ ^-?[0-9]{1,9}$ ]] || return 1
   # Force base 10 so a leading zero is not read as octal.
@@ -50,6 +48,7 @@ zoomctl_validate_bool() {
   case "$lowered" in
     on|1|true|yes) printf 'on\n' ;;
     off|0|false|no) printf 'off\n' ;;
+    # Anything else is not a boolean.
     *) return 1 ;;
   esac
 }
@@ -92,6 +91,7 @@ zoomctl_validate_key() {
 zoomctl_validate_mods() {
   local normalised="${1^^}"
   local -a words=()
+  # Set of modifiers seen so far, so duplicates collapse.
   local -A seen=()
   local word modifier
   local -a ordered=()
@@ -125,9 +125,11 @@ zoomctl_validate_by_type() {
   case "$1" in
     float) zoomctl_validate_float "$2" "$3" ;;
     int) zoomctl_validate_int "$2" "$3" ;;
+    # Bool, key and mods have no constraint field.
     bool) zoomctl_validate_bool "$3" ;;
     enum) zoomctl_validate_enum "$2" "$3" ;;
     key) zoomctl_validate_key "$3" ;;
+    # Modifier lists are normalised to the canonical ' + ' form.
     mods) zoomctl_validate_mods "$3" ;;
     *) return 1 ;;
   esac
@@ -143,6 +145,7 @@ zoomctl_bounds_ok() {
   minimum_centi="$(zoomctl_float_to_centi "$1")" || return 1
   reset_centi="$(zoomctl_float_to_centi "$2")" || return 1
   maximum_centi="$(zoomctl_float_to_centi "$3")" || return 1
+  # The rule itself; its result is the function's status.
   (( minimum_centi <= reset_centi && reset_centi <= maximum_centi ))
 }
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# forwarding.sh — suite: engine forwarding strings (C4), injection rejection, preview, status,
+# test-forwarding.sh — suite: engine forwarding strings (C4), injection rejection, preview, status,
 # doctor, help, exit codes and the settings-app launcher.
 set -u
 
-source "$(dirname -- "${BASH_SOURCE[0]}")/lib/testlib.sh"
+source "$(dirname -- "${BASH_SOURCE[0]}")/lib/test-lib.sh"
 test_init forwarding
 
 # assert_calls — compare the recorded hyprctl calls with the expected text exactly.

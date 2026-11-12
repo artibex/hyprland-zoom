@@ -38,6 +38,7 @@ zoomctl_lua_table_literal() {
   for pair in "$@"; do
     key="${pair%%=*}"
     [[ "$key" =~ ^[A-Z_]+$ ]] || return 1
+    # Values pass the safe-character guard before they become Lua text.
     quoted_value="$(zoomctl_lua_quote "${pair#*=}")" || return 1
     entries+=("$key=$quoted_value")
   done
@@ -51,6 +52,7 @@ zoomctl_lua_table_literal() {
 zoomctl_engine_forward() {
   local lua_call="$1"
   local engine_answer
+  # The remaining arguments are the fallback command line.
   shift
   # One hyprctl process is the whole cost of the normal path.
   engine_answer="$(zoomctl_hyprland_eval "$lua_call")" && return 0
@@ -59,6 +61,7 @@ zoomctl_engine_forward() {
   case "$ZOOMCTL_PROBE" in
     engine) zoomctl_error "the engine rejected $lua_call: $engine_answer" ;;
     unreachable) zoomctl_error "Hyprland is not reachable (no running session?)" ;;
+    # Without the engine the fallback command takes over.
     *) "$@" ;;
   esac
 }
@@ -73,6 +76,7 @@ zoomctl_engine_require() {
   case "$ZOOMCTL_PROBE" in
     engine) return 0 ;;
     unreachable) zoomctl_error "$1 needs a running Hyprland session" ;;
+    # Setting the engine up is the one thing the user can do about it.
     lua-no-engine) zoomctl_error "$1 needs the engine: run 'zoomctl setup', then reload Hyprland" ;;
     *) zoomctl_error "$1 needs Hyprland with the Lua config (0.55+); not available on hyprlang" ;;
   esac
@@ -85,6 +89,7 @@ zoomctl_engine_require() {
 zoomctl_engine_status_lines() {
   local answer
   zoomctl_hyprland_probe
+  # Only a loaded engine can answer; everything else is the caller's fallback.
   [ "$ZOOMCTL_PROBE" = 'engine' ] || return 1
   answer="$(hyprctl repl 'return HyprZoom.status()' 2>/dev/null)" || return 1
   # A well-formed answer starts with the engine key.
@@ -92,22 +97,39 @@ zoomctl_engine_status_lines() {
   printf '%s\n' "$answer"
 }
 
+# zoomctl_engine_checked_pair — resolve and validate one KEY=VALUE pair of user input.
+# Args:    $1 pair as typed (alias or canonical key)
+# Returns: 0 valid; 1 malformed, unknown or invalid (message on stderr); stdout: KEY=VALUE canonical
+# Globals: reads the schema tables
+zoomctl_engine_checked_pair() {
+  local canonical_key canonical_value
+  [[ "$1" == *=* ]] || { zoomctl_error "'$1' is not KEY=VALUE"; return 1; }
+  # Alias resolution and the type validator are the same ones `set` uses.
+  canonical_key="$(zoomctl_schema_resolve_key "${1%%=*}")" || {
+    zoomctl_error "unknown setting '${1%%=*}'"
+    return 1
+  }
+  # The value must pass the same type validator as `set`.
+  canonical_value="$(zoomctl_schema_validate "$canonical_key" "${1#*=}")" || {
+    zoomctl_error "invalid value '${1#*=}' for $canonical_key"
+    return 1
+  }
+  # Both halves are validated, so the pair is safe to forward.
+  printf '%s=%s\n' "$canonical_key" "$canonical_value"
+}
+
 # zoomctl_engine_preview — apply validated overrides live without writing any file.
 # Args:    $1.. KEY=VALUE pairs (user input, aliases allowed)
 # Returns: 0 applied; 1 invalid input or no engine; 2 no pairs given
 # Globals: reads the schema tables
 zoomctl_engine_preview() {
-  local pair canonical_key canonical_value
+  local pair
   local -a checked_pairs=()
+  # Nothing to preview without a pair; that is a usage mistake.
   [ "$#" -gt 0 ] || { zoomctl_usage_error "preview needs KEY=VALUE pairs or --end"; return 2; }
   # Every pair is resolved and validated before anything is sent.
   for pair in "$@"; do
-    [[ "$pair" == *=* ]] || { zoomctl_error "'$pair' is not KEY=VALUE"; return 1; }
-    canonical_key="$(zoomctl_schema_resolve_key "${pair%%=*}")" ||
-      { zoomctl_error "unknown setting '${pair%%=*}'"; return 1; }
-    canonical_value="$(zoomctl_schema_validate "$canonical_key" "${pair#*=}")" ||
-      { zoomctl_error "invalid value '${pair#*=}' for $canonical_key"; return 1; }
-    checked_pairs+=("$canonical_key=$canonical_value")
+    checked_pairs+=("$(zoomctl_engine_checked_pair "$pair")") || return 1
   done
   zoomctl_engine_send_preview "${checked_pairs[@]}"
 }
@@ -119,10 +141,12 @@ zoomctl_engine_preview() {
 zoomctl_engine_send_preview() {
   local table_literal engine_answer
   zoomctl_engine_require 'live preview' || return 1
+  # Only canonical, validated pairs may become Lua text.
   table_literal="$(zoomctl_lua_table_literal "$@")" || return 1
   # The engine overlays the table on the saved config without writing it.
-  engine_answer="$(zoomctl_hyprland_eval "$(zoomctl_lua_call preview "$table_literal")")" ||
+  if ! engine_answer="$(zoomctl_hyprland_eval "$(zoomctl_lua_call preview "$table_literal")")"; then
     zoomctl_error "the engine rejected the preview: $engine_answer"
+  fi
 }
 
 # zoomctl_engine_preview_end — drop the preview overrides and re-apply the saved config.
@@ -132,8 +156,10 @@ zoomctl_engine_send_preview() {
 zoomctl_engine_preview_end() {
   local engine_answer
   zoomctl_engine_require 'live preview' || return 1
-  engine_answer="$(zoomctl_hyprland_eval "$(zoomctl_lua_call preview_end)")" ||
+  # The engine drops its overrides and re-applies the saved configuration.
+  if ! engine_answer="$(zoomctl_hyprland_eval "$(zoomctl_lua_call preview_end)")"; then
     zoomctl_error "the engine rejected preview --end: $engine_answer"
+  fi
 }
 
 # zoomctl_engine_reload — make a running session pick up freshly saved settings.
@@ -150,6 +176,7 @@ zoomctl_engine_reload() {
     engine) zoomctl_warn "saved, but the engine rejected the reload: $engine_answer" ;;
     unreachable) zoomctl_warn "saved; Hyprland is not reachable, so nothing was applied live" ;;
     *)
+      # Without the engine the basic options are re-applied through the fallback.
       zoomctl_legacy_run apply_settings >/dev/null 2>&1
       zoomctl_warn "saved; the Lua engine is not loaded, only basic options were applied" ;;
   esac

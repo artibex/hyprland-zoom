@@ -30,9 +30,11 @@ zoomctl_user_config_file() {
 zoomctl_config_parse_file() {
   local config_file="$1"
   local -n raw_map_ref="$2"
+  # Working variables of the line loop.
   local line key value line_number=0
   [ -r "$config_file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
+    # Count lines so a warning can point at the offending one.
     line_number=$((line_number + 1))
     # Tolerate CRLF files and surrounding blanks.
     line="${line%$'\r'}"
@@ -41,10 +43,12 @@ zoomctl_config_parse_file() {
     case "$line" in ''|'#'*) continue ;; esac
     if [[ "$line" != *=* ]]; then
       zoomctl_warn "$config_file:$line_number: ignoring line without '='"
+      # Skip the line; the warning above tells the user which one.
       continue
     fi
     key="${line%%=*}"
     value="${line#*=}"
+    # Blanks around key and value are not significant.
     zoomctl_trim_var key
     zoomctl_trim_var value
     # Keys become map subscripts, so only plain identifiers are allowed.
@@ -65,14 +69,18 @@ zoomctl_config_parse_file() {
 zoomctl_config_apply_compat() {
   local config_file="$1"
   local -n compat_map_ref="$2"
+  # Result of translating the old on/off switch.
   local tracking_mode
   # Only 0.1 files carry ZOOM_CENTER_CURSOR.
   [ -n "${compat_map_ref[ZOOM_CENTER_CURSOR]+set}" ] || return 0
   # An explicit ZOOM_TRACKING wins over the old switch.
   if [ -z "${compat_map_ref[ZOOM_TRACKING]+set}" ]; then
-    if tracking_mode="$(zoomctl_config_legacy_tracking "${compat_map_ref[ZOOM_CENTER_CURSOR]}")"; then
+    tracking_mode="$(zoomctl_config_legacy_tracking "${compat_map_ref[ZOOM_CENTER_CURSOR]}")"
+    if [ -n "$tracking_mode" ]; then
+      # A valid switch becomes the equivalent tracking mode.
       compat_map_ref[ZOOM_TRACKING]="$tracking_mode"
     else
+      # An unparsable switch is reported, never fatal.
       zoomctl_warn "$config_file: invalid ZOOM_CENTER_CURSOR ignored"
     fi
   fi
@@ -99,9 +107,11 @@ zoomctl_config_legacy_tracking() {
 zoomctl_config_read_layer() {
   local config_file="$1"
   local -n layer_map_ref="$2"
+  # Raw text values before validation; canonical values go to the caller's map.
   local -A raw_values=()
   local key canonical_value
   layer_map_ref=()
+  # A missing file is an empty layer, not an error.
   [ -r "$config_file" ] || return 0
   zoomctl_config_parse_file "$config_file" raw_values
   zoomctl_config_apply_compat "$config_file" raw_values
@@ -109,6 +119,7 @@ zoomctl_config_read_layer() {
   for key in "${ZOOMCTL_SCHEMA_KEYS[@]}"; do
     [ -n "${raw_values[$key]+set}" ] || continue
     if canonical_value="$(zoomctl_schema_validate "$key" "${raw_values[$key]}")"; then
+      # Store the canonical form so layers and writers compare like with like.
       layer_map_ref[$key]="$canonical_value"
     else
       zoomctl_warn "$config_file: invalid value '${raw_values[$key]}' for $key ignored"
@@ -121,13 +132,14 @@ zoomctl_config_read_layer() {
   done
 }
 
-# zoomctl_config_layer_bounds_check — test MIN <= RESET <= MAX for the effective config plus a layer.
+# zoomctl_config_layer_bounds_check — test MIN <= RESET <= MAX for the config plus a layer.
 # Args:    $1 name of a layer map (canonical values)
 # Returns: 0 rule holds, no output; 1 violated; stdout: the violated rule with the values
 # Globals: reads ZOOMCTL_VALUE
 zoomctl_config_layer_bounds_check() {
   local -n candidate_layer_ref="$1"
   local minimum="${candidate_layer_ref[ZOOM_MIN]:-${ZOOMCTL_VALUE[ZOOM_MIN]}}"
+  # Each bound comes from the layer when present, else from the effective config.
   local reset="${candidate_layer_ref[ZOOM_RESET]:-${ZOOMCTL_VALUE[ZOOM_RESET]}}"
   local maximum="${candidate_layer_ref[ZOOM_MAX]:-${ZOOMCTL_VALUE[ZOOM_MAX]}}"
   # A layer value overrides the effective one, missing keys keep it.
@@ -143,6 +155,7 @@ zoomctl_config_layer_bounds_check() {
 zoomctl_config_apply_layer() {
   local config_file="$1"
   local layer_name="$2"
+  # Validated values of this one file.
   local -A layer_values=()
   local key bounds_problem
   zoomctl_config_read_layer "$config_file" layer_values
@@ -165,6 +178,7 @@ zoomctl_config_apply_layer() {
 zoomctl_config_load() {
   local key
   zoomctl_schema_load || return 1
+  # Start from empty tables so a reload never keeps stale keys.
   ZOOMCTL_VALUE=()
   ZOOMCTL_SOURCE=()
   # Layer 0: schema defaults (trusted, pinned by a test).
@@ -172,6 +186,7 @@ zoomctl_config_load() {
     ZOOMCTL_VALUE[$key]="${ZOOMCTL_SCHEMA_DEFAULT[$key]}"
     ZOOMCTL_SOURCE[$key]='default'
   done
+  # The system file beats the defaults, the user file beats both.
   zoomctl_config_apply_layer "$(zoomctl_system_config_file)" system
   [ "${1:-}" = 'base' ] && return 0
   zoomctl_config_apply_layer "$(zoomctl_user_config_file)" user

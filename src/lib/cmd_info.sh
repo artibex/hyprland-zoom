@@ -66,6 +66,7 @@ zoomctl_command_status() {
   case "${1:-}" in
     '') zoomctl_status_human ;;
     --porcelain) zoomctl_status_porcelain ;;
+    # Anything else is a usage error.
     *) zoomctl_usage_error "unknown option '$1' for status" ;;
   esac
 }
@@ -76,8 +77,10 @@ zoomctl_command_status() {
 # Globals: none
 zoomctl_command_setup() {
   [ "$#" -eq 0 ] || { zoomctl_usage_error "setup takes no arguments"; return 2; }
-  zoomctl_install_hyprland_include ||
+  # The wiring functions print what they did; only a failure needs an extra message.
+  if ! zoomctl_install_hyprland_include; then
     zoomctl_error "could not update the Hyprland config (is HOME set?)"
+  fi
 }
 
 # zoomctl_find_settings_app — locate the settings app (installed or in the checkout).
@@ -98,6 +101,7 @@ zoomctl_find_settings_app() {
 zoomctl_command_ui() {
   local settings_app
   settings_app="$(zoomctl_find_settings_app)" || {
+    # A clear hint beats a bare 'command not found' when the app is absent.
     zoomctl_error "hyprland-zoom-settings is not installed (it needs python-gobject and libadwaita)"
     return 1
   }
@@ -130,10 +134,12 @@ zoomctl_command_uninstall() {
   if [ "${1:-}" = '--yes' ]; then
     answer='y'
   elif [ -t 0 ]; then
+    # Ask only on a terminal; scripts must pass --yes explicitly.
     read -r -p 'Remove the hyprland-zoom package? [y/N] ' answer
   fi
   case "${answer,,}" in
     y|yes) zoomctl_run_privileged pacman -Rns hyprland-zoom ;;
+    # Any other answer, including no terminal at all, cancels.
     *) printf 'zoomctl: uninstall cancelled\n' ;;
   esac
 }

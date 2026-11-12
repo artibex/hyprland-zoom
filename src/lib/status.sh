@@ -41,14 +41,18 @@ zoomctl_status_engine_word() {
 zoomctl_status_fallback() {
   local plugin_state='missing' saved_zoom delay_ms
   zoomctl_config_load || return 1
+  # The plugin is only reported here; margin tracking is the engine's business.
   zoomctl_hyprland_plugin_loaded hyprzoom && plugin_state='loaded'
   saved_zoom="$(zoomctl_state_saved_zoom)" || saved_zoom="${ZOOMCTL_VALUE[ZOOM_RESET]:-1.00}"
+  # The live delay shows whether the engine or the bind file applied it.
   delay_ms="$(zoomctl_hyprland_option_number binds:scroll_event_delay)" ||
     delay_ms="${ZOOMCTL_VALUE[SCROLL_EVENT_DELAY_MS]:-0}"
   printf 'engine=%s\n' "$(zoomctl_status_engine_word)"
+  # Package and compositor version identify the setup in bug reports.
   printf 'version=%s\n' "$ZOOMCTL_VERSION"
   printf 'hyprland=%s\n' "$(zoomctl_hyprland_version || printf 'unknown')"
   printf 'zoom=%s\n' "$(zoomctl_status_live_zoom)"
+  # The toggle's remembered level, then the tracking configuration.
   printf 'saved_zoom=%s\n' "$saved_zoom"
   printf 'tracking=%s\n' "${ZOOMCTL_VALUE[ZOOM_TRACKING]}"
   printf 'tracking_effective=%s\n' \

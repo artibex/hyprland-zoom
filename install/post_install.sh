@@ -46,6 +46,7 @@ zoomctl_conf_include_line() {
 zoomctl_is_dofile_line() {
   local quote="[\"']"
   local path_text="[^\"']*"
+  # The finished regular expression, built from the pieces above.
   local pattern
   # Anchored at the line start, so a commented-out dofile never matches.
   pattern="^[[:space:]]*dofile[[:space:]]*\([[:space:]]*${quote}${path_text}/${2//./\\.}"
@@ -85,7 +86,9 @@ zoomctl_is_managed_lua_line() {
 # Returns: 0 it is the include; 1 it is not
 # Globals: none
 zoomctl_is_conf_include_line() {
-  local pattern='^[[:space:]]*source[[:space:]]*=[[:space:]]*[^#]*/hyprland-bindings\.conf[[:space:]]*$'
+  local pattern='^[[:space:]]*source[[:space:]]*=[[:space:]]*[^#]*/hyprland-bindings\.conf'
+  pattern+='[[:space:]]*$'
+  # Shape check first; the ownership check follows below.
   [[ "$1" =~ $pattern ]] || return 1
   # Same ownership test as for the Lua line: package directory or the configured share dir.
   [[ "$1" == *"hyprland-zoom/"* || "$1" == *"$(zoomctl_share_dir)/hyprland-bindings.conf"* ]]
@@ -125,6 +128,7 @@ zoomctl_target_home() {
     printf '%s\n' "$HOME"
     return 0
   fi
+  # No usable home: the caller decides what to do.
   return 1
 }
 
@@ -138,10 +142,12 @@ zoomctl_target_user() {
     printf '%s\n' "$ZOOMCTL_TARGET_USER"
     return 0
   fi
+  # Running through sudo: the invoking user owns the files.
   if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != 'root' ]; then
     printf '%s\n' "$SUDO_USER"
     return 0
   fi
+  # Not applicable: there is nobody to hand files to.
   return 1
 }
 
@@ -155,6 +161,7 @@ zoomctl_fix_ownership() {
   [ "$(id -u)" = '0' ] || return 0
   target_user="$(zoomctl_target_user)" || return 0
   target_group="$(id -gn "$target_user" 2>/dev/null)" || target_group="$target_user"
+  # Best effort: a failed chown must not abort the wiring.
   chown "$target_user":"$target_group" "$1" 2>/dev/null || true
 }
 
@@ -169,6 +176,7 @@ zoomctl_mkdir_owned() {
   parent="$(dirname -- "$1")"
   [ "$parent" = "$1" ] || zoomctl_mkdir_owned "$parent"
   mkdir "$1" 2>/dev/null || mkdir -p "$1"
+  # The new directory belongs to the user, not to root.
   zoomctl_fix_ownership "$1"
 }
 
@@ -180,10 +188,13 @@ zoomctl_hyprland_lua_config_file() {
   local target_home
   target_home="$(zoomctl_target_home)" || return 1
   # XDG_CONFIG_HOME is only trusted for a direct, non-redirected invocation.
-  if [ -z "${ZOOMCTL_TARGET_HOME:-}" ] && [ -z "${SUDO_USER:-}" ] && [ -n "${XDG_CONFIG_HOME:-}" ]; then
+  if [ -z "${ZOOMCTL_TARGET_HOME:-}" ] && [ -z "${SUDO_USER:-}" ] &&
+    [ -n "${XDG_CONFIG_HOME:-}" ]; then
+    # A direct invocation honours the XDG location.
     printf '%s/hypr/hyprland.lua\n' "$XDG_CONFIG_HOME"
     return 0
   fi
+  # Default location for a plain session.
   printf '%s/.config/hypr/hyprland.lua\n' "$target_home"
 }
 
@@ -220,6 +231,7 @@ zoomctl_replace_file() {
   original_mode="$(stat -c '%a' -- "$2" 2>/dev/null || printf '644')"
   chmod "$original_mode" "$1"
   mv -f -- "$1" "$2" || return 1
+  # The replaced file keeps the user's ownership.
   zoomctl_fix_ownership "$2"
 }
 
@@ -234,6 +246,7 @@ zoomctl_render_lua_config() {
   while IFS= read -r line || [ -n "$line" ]; do
     if zoomctl_is_managed_lua_line "$line"; then
       [ "$emitted" -eq 0 ] && printf '%s\n' "$engine_line"
+      # Later managed lines (duplicates, 0.1 leftovers) are dropped.
       emitted=1
     else
       printf '%s\n' "$line"
@@ -254,20 +267,24 @@ zoomctl_wire_lua_config() {
   if [ ! -f "$config_file" ]; then
     zoomctl_mkdir_owned "$(dirname -- "$config_file")"
     zoomctl_engine_include_line > "$config_file" || return 1
+    # A file created as root would lock the user out.
     zoomctl_fix_ownership "$config_file"
     printf 'zoomctl: created %s\n' "$config_file"
     return 0
   fi
+  # The draft is built beside the original for an atomic swap.
   draft_file="$(mktemp "$config_file.XXXXXX")" || return 1
   zoomctl_render_lua_config "$config_file" > "$draft_file"
   # Identical output means nothing to do, and no backup clutter either.
   if cmp -s -- "$draft_file" "$config_file"; then
     rm -f -- "$draft_file"
     printf 'zoomctl: Hyprland include already present in %s\n' "$config_file"
+    # No change: no backup and no rewrite.
     return 0
   fi
   zoomctl_backup_file "$config_file"
   zoomctl_replace_file "$draft_file" "$config_file" || { rm -f -- "$draft_file"; return 1; }
+  # The announcement tells the user which file changed.
   printf 'zoomctl: wired the engine into %s\n' "$config_file"
 }
 
@@ -295,8 +312,10 @@ zoomctl_ensure_conf_include() {
   if [ ! -f "$config_file" ]; then
     zoomctl_mkdir_owned "$(dirname -- "$config_file")"
     zoomctl_conf_include_line > "$config_file" || return 1
+    # New dotfiles are world-readable like the rest of ~/.config.
     chmod 644 "$config_file"
     zoomctl_fix_ownership "$config_file"
+    # Creating the file is announced like any other change.
     printf 'zoomctl: created %s\n' "$config_file"
     return 0
   fi
@@ -305,11 +324,13 @@ zoomctl_ensure_conf_include() {
     printf 'zoomctl: Hyprland include already present in %s\n' "$config_file"
     return 0
   fi
+  # The draft is built beside the original for an atomic swap.
   draft_file="$(mktemp "$config_file.XXXXXX")" || return 1
   # Copy the file; the line reader below re-terminates an unterminated last line.
   zoomctl_render_conf_config "$config_file" > "$draft_file"
   zoomctl_backup_file "$config_file"
   zoomctl_replace_file "$draft_file" "$config_file" || { rm -f -- "$draft_file"; return 1; }
+  # The announcement tells the user which file changed.
   printf 'zoomctl: added Hyprland include to %s\n' "$config_file"
 }
 
@@ -320,11 +341,13 @@ zoomctl_ensure_conf_include() {
 zoomctl_install_hyprland_include() {
   local lua_config conf_config
   lua_config="$(zoomctl_hyprland_lua_config_file)" || return 1
+  # The legacy file always sits next to hyprland.lua.
   conf_config="$(zoomctl_hyprland_config_file)" || return 1
   # Hyprland 0.55+ uses hyprland.lua when it exists; keep a present hyprland.conf in sync too.
   if [ -f "$lua_config" ]; then
     zoomctl_wire_lua_config "$lua_config" || return 1
     [ -f "$conf_config" ] && { zoomctl_ensure_conf_include "$conf_config" || return 1; }
+    # The Lua path is done; the conf was kept in sync above.
     return 0
   fi
   zoomctl_ensure_conf_include "$conf_config"
@@ -337,6 +360,7 @@ zoomctl_install_hyprland_include() {
 zoomctl_remove_matching_lines() {
   local config_file="$1"
   local line draft_file removed=0
+  # Nothing to remove from a missing file.
   [ -f "$config_file" ] || return 0
   draft_file="$(mktemp "$config_file.XXXXXX")" || return 0
   # Copy every line the predicate does not claim.
@@ -347,6 +371,7 @@ zoomctl_remove_matching_lines() {
   [ "$removed" -eq 1 ] || { rm -f -- "$draft_file"; return 0; }
   zoomctl_backup_file "$config_file"
   if [ -s "$draft_file" ]; then
+    # Keep the user's own lines; an emptied file is deleted below.
     zoomctl_replace_file "$draft_file" "$config_file" || rm -f -- "$draft_file"
   else
     rm -f -- "$draft_file" "$config_file"
@@ -360,6 +385,7 @@ zoomctl_remove_matching_lines() {
 zoomctl_remove_hyprland_include() {
   local lua_config conf_config
   lua_config="$(zoomctl_hyprland_lua_config_file)" || return 0
+  # The legacy file always sits next to hyprland.lua.
   conf_config="$(zoomctl_hyprland_config_file)" || return 0
   # Each file loses only the lines this tool wrote.
   zoomctl_remove_matching_lines "$lua_config" zoomctl_is_managed_lua_line

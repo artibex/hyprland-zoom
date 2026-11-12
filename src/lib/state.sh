@@ -33,6 +33,7 @@ zoomctl_state_ensure_dir() {
 zoomctl_state_read() {
   local state_file line
   state_file="$(zoomctl_state_dir)/state"
+  # No state file yet means nothing is stored.
   [ -r "$state_file" ] || return 1
   # The first matching line answers; the writer keeps one line per key.
   while IFS= read -r line || [ -n "$line" ]; do
@@ -48,6 +49,7 @@ zoomctl_state_read() {
 zoomctl_state_copy_without() {
   local state_file line
   state_file="$(zoomctl_state_dir)/state"
+  # An absent file has no other keys to carry over.
   [ -r "$state_file" ] || return 0
   # Pass every other key through untouched.
   while IFS= read -r line || [ -n "$line" ]; do
@@ -62,6 +64,7 @@ zoomctl_state_copy_without() {
 zoomctl_state_write() {
   local state_directory draft_file
   state_directory="$(zoomctl_state_dir)"
+  # The runtime directory is gone after a reboot, so make sure it exists.
   zoomctl_state_ensure_dir || return 1
   draft_file="$(mktemp "$state_directory/.state.XXXXXX")" || return 1
   # The old keys first, then the new value.
@@ -77,6 +80,7 @@ zoomctl_state_write() {
 zoomctl_state_delete() {
   local state_directory draft_file
   state_directory="$(zoomctl_state_dir)"
+  # Nothing stored means nothing to delete.
   [ -r "$state_directory/state" ] || return 0
   draft_file="$(mktemp "$state_directory/.state.XXXXXX")" || return 0
   # Copy everything except the key, then replace the file atomically.
@@ -97,6 +101,7 @@ zoomctl_state_saved_zoom() {
   [ -r "$legacy_file" ] || return 1
   remembered="$(tr -d '[:space:]' < "$legacy_file")"
   zoomctl_is_float "$remembered" || return 1
+  # Only a valid number gets here; anything else was ignored above.
   printf '%s\n' "$remembered"
 }
 
@@ -107,6 +112,7 @@ zoomctl_state_saved_zoom() {
 zoomctl_state_with_lock() {
   local lock_file
   zoomctl_state_ensure_dir || return 1
+  # The lock file lives beside the state so one directory holds everything.
   lock_file="$(zoomctl_state_dir)/lock"
   # The subshell owns fd 9; the lock vanishes with it, even when the command fails.
   (

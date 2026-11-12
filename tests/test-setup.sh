@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# setup.sh — suite: `zoomctl setup` wiring and migration, and the pacman hooks of
+# test-setup.sh — suite: `zoomctl setup` wiring and migration, and the pacman hooks of
 # install/post_install.sh (post_install, post_upgrade, post_remove) incl. the sync guard.
 set -u
 
-source "$(dirname -- "${BASH_SOURCE[0]}")/lib/testlib.sh"
+source "$(dirname -- "${BASH_SOURCE[0]}")/lib/test-lib.sh"
 test_init setup
 
 # Locations inside the sandbox (ZOOMCTL_TARGET_HOME points at the sandbox home).

@@ -59,6 +59,7 @@ zoomctl_join_by() {
   [ "$#" -gt 0 ] || return 0
   printf '%s' "$1"
   shift
+  # Every remaining item is printed with the separator in front.
   printf '%s' "${@/#/$separator}"
   printf '\n'
 }

@@ -14,6 +14,7 @@ zoomctl_legacy_tracking_flags() {
   case "$1" in
     centered) printf 'true false\n' ;;
     follow) printf 'false false\n' ;;
+    # Edge and margin both use the detached camera (no plugin on this path).
     *) printf 'false true\n' ;;
   esac
 }
@@ -29,6 +30,7 @@ zoomctl_legacy_option_pairs() {
   [ "${ZOOMCTL_VALUE[ZOOM_SMOOTH_IMAGES]}" = 'off' ] && disable_antialiasing='true'
   [ -z "$1" ] || printf 'cursor:zoom_factor %s\n' "$1"
   printf 'cursor:zoom_rigid %s\n' "$rigid"
+  # The camera flags come from the tracking-mode table of the spike (Q7).
   printf 'cursor:zoom_detached_camera %s\n' "$detached"
   printf 'cursor:zoom_disable_aa %s\n' "$disable_antialiasing"
   printf 'binds:scroll_event_delay %s\n' "${ZOOMCTL_VALUE[SCROLL_EVENT_DELAY_MS]}"
@@ -45,6 +47,7 @@ zoomctl_legacy_lua_config() {
   while read -r option_name option_value; do
     case "$option_name" in
       cursor:*) cursor_entries+=("${option_name#cursor:} = $option_value") ;;
+      # Everything else belongs to the binds category.
       binds:*) binds_entries+=("${option_name#binds:} = $option_value") ;;
     esac
   done < <(zoomctl_legacy_option_pairs "$1")
@@ -75,13 +78,15 @@ zoomctl_legacy_apply() {
   zoomctl_hyprland_probe
   # A Lua config without the engine still understands hl.config through eval.
   if [ "$ZOOMCTL_PROBE" = 'lua-no-engine' ]; then
-    zoomctl_hyprland_eval "$(zoomctl_legacy_lua_config "$1")" >/dev/null ||
-      zoomctl_error "Hyprland rejected the zoom settings"
+    zoomctl_hyprland_eval "$(zoomctl_legacy_lua_config "$1")" >/dev/null && return 0
+    zoomctl_error "Hyprland rejected the zoom settings"
+    # The status of the error report above is the function's result.
     return
   fi
   # hyprlang accepts keywords; one batch keeps it to a single process.
-  hyprctl --batch "$(zoomctl_legacy_keyword_batch "$1")" >/dev/null 2>&1 ||
+  if ! hyprctl --batch "$(zoomctl_legacy_keyword_batch "$1")" >/dev/null 2>&1; then
     zoomctl_error "Hyprland rejected the zoom settings"
+  fi
 }
 
 # zoomctl_legacy_current_centi — read the live zoom as hundredths (state file as fallback).
@@ -104,15 +109,18 @@ zoomctl_legacy_current_centi() {
 zoomctl_legacy_next_centi() {
   local current="$1" step="$2" mode="$3" direction="$4" notches="$5"
   local notch_index next
+  # One iteration per notch keeps the rounding identical to repeated key presses.
   for ((notch_index = 0; notch_index < notches; notch_index++)); do
     # Multiply: x * (1 + step) or x / (1 + step), rounded to hundredths.
     if [ "$mode" = 'multiply' ] && [ "$direction" = 'in' ]; then
       next=$(((current * (100 + step) + 50) / 100))
     elif [ "$mode" = 'multiply' ]; then
+      # Zooming out divides, so in followed by out returns to the same level.
       next=$(((current * 100 + (100 + step) / 2) / (100 + step)))
     elif [ "$direction" = 'in' ]; then
       next=$((current + step))
     else
+      # Additive model: out subtracts the same fixed amount.
       next=$((current - step))
     fi
     # Rounding must never swallow a whole notch.
@@ -120,6 +128,7 @@ zoomctl_legacy_next_centi() {
     [ "$direction" = 'out' ] && (( next >= current )) && next=$((current - 1))
     current="$next"
   done
+  # The caller clamps the result to the configured bounds.
   printf '%s\n' "$current"
 }
 
@@ -146,6 +155,7 @@ zoomctl_legacy_store() {
 zoomctl_legacy_step_locked() {
   local step_centi next_centi
   zoomctl_config_load || return 1
+  # The step is converted once; all arithmetic runs in hundredths.
   step_centi="$(zoomctl_float_to_centi "${ZOOMCTL_VALUE[ZOOM_STEP]}")"
   # Read, compute and write happen inside one lock: that is the race fix.
   next_centi="$(zoomctl_legacy_next_centi "$(zoomctl_legacy_current_centi)" "$step_centi" \
@@ -169,6 +179,7 @@ zoomctl_legacy_set_locked() {
 zoomctl_legacy_reset_locked() {
   zoomctl_config_load || return 1
   zoomctl_legacy_store "$(zoomctl_float_to_centi "${ZOOMCTL_VALUE[ZOOM_RESET]}")" || return 1
+  # A reset forgets the level the toggle would otherwise restore.
   zoomctl_state_delete saved_zoom
 }
 
@@ -179,12 +190,14 @@ zoomctl_legacy_reset_locked() {
 zoomctl_legacy_toggle_locked() {
   local current_centi reset_centi saved_zoom
   zoomctl_config_load || return 1
+  # Both levels are compared as integer hundredths.
   current_centi="$(zoomctl_legacy_current_centi)"
   reset_centi="$(zoomctl_float_to_centi "${ZOOMCTL_VALUE[ZOOM_RESET]}")"
   # Zoomed in: remember the level and go back to the reset zoom.
   if (( current_centi > reset_centi )); then
     zoomctl_state_write saved_zoom "$(zoomctl_centi_to_float "$current_centi")" || return 1
     zoomctl_legacy_store "$reset_centi"
+    # Done: the saved level comes back with the next toggle.
     return
   fi
   # At the reset zoom: restore the remembered level when there is one.

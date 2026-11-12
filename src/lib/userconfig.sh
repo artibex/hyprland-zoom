@@ -9,6 +9,7 @@
 zoomctl_userconfig_write() {
   local -n override_map_ref="$1"
   local config_file config_dir draft_file key file_mode
+  # The single writer resolves the path through the shared helper.
   config_file="$(zoomctl_user_config_file)"
   config_dir="$(dirname -- "$config_file")"
   # No overrides left means no file, so `get` and the UI see pure defaults.
@@ -16,9 +17,11 @@ zoomctl_userconfig_write() {
     rm -f -- "$config_file"
     return 0
   fi
+  # A fresh account has no config directory yet.
   mkdir -p -- "$config_dir" || return 1
   # The draft lives in the target directory so the final rename is atomic.
   draft_file="$(mktemp "$config_dir/.zoom.conf.XXXXXX")" || return 1
+  # Schema order keeps the file stable and diff-friendly.
   for key in "${ZOOMCTL_SCHEMA_KEYS[@]}"; do
     [ -n "${override_map_ref[$key]+set}" ] && printf '%s=%s\n' "$key" "${override_map_ref[$key]}"
   done > "$draft_file"
@@ -55,9 +58,11 @@ zoomctl_userconfig_check_bounds() {
 zoomctl_userconfig_set() {
   local -A override_values=()
   zoomctl_config_load base || return 1
+  # The existing overrides are loaded and canonicalised first.
   zoomctl_userconfig_load_overrides override_values
   override_values[$1]="$2"
   zoomctl_userconfig_check_bounds override_values || return 1
+  # The atomic rename leaves the old file intact when the write fails.
   zoomctl_userconfig_write override_values || zoomctl_error "cannot write the user config"
 }
 
@@ -68,11 +73,13 @@ zoomctl_userconfig_set() {
 zoomctl_userconfig_unset() {
   local -A override_values=()
   zoomctl_config_load base || return 1
+  # The existing overrides are loaded and canonicalised first.
   zoomctl_userconfig_load_overrides override_values
   # Nothing to do when the key was never overridden.
   [ -n "${override_values[$1]+set}" ] || return 0
   unset "override_values[$1]"
   zoomctl_userconfig_check_bounds override_values || return 1
+  # A failed write keeps the old file thanks to the atomic rename.
   zoomctl_userconfig_write override_values || zoomctl_error "cannot write the user config"
 }
 

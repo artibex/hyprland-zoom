@@ -14,11 +14,13 @@ BASH_SUITES=(schema config forwarding legacy setup)
 run_suite() {
   local label="$1"
   local output
+  # The remaining arguments are the suite command.
   shift
   # Suite output is shown only when it fails, keeping the normal run readable.
   if output="$("$@" 2>&1)"; then
     printf 'ok    %-12s %s\n' "$label" "$(tail -n 1 <<< "$output")"
   else
+    # A failing suite's whole output is shown for diagnosis.
     printf 'FAIL  %-12s\n%s\n' "$label" "$output"
     return 1
   fi
@@ -35,6 +37,7 @@ run_lint() {
     printf 'SKIP  %-12s shellcheck not installed\n' lint
     return 0
   fi
+  # -x follows the sourced libraries so they are checked in context.
   run_suite lint shellcheck -x -e SC1090,SC1091,SC2034,SC2004 "$REPO_ROOT/src/zoomctl" \
     "$REPO_ROOT"/src/lib/*.sh "$REPO_ROOT/install/post_install.sh" "$REPO_ROOT"/tests/*.sh \
     "$REPO_ROOT"/tests/lib/*.sh "$REPO_ROOT/tests/fixtures/fake-hyprctl"
@@ -50,6 +53,7 @@ run_lua_suites() {
     printf 'SKIP  %-12s tests/lua/run.sh not present\n' lua
     return 0
   fi
+  # The engine's own runner decides pass or fail.
   run_suite lua "$REPO_ROOT/tests/lua/run.sh"
 }
 
@@ -60,17 +64,20 @@ run_lua_suites() {
 main() {
   local failures=0 suite
   local -a selected=("$@")
+  # No arguments means every suite.
   [ "${#selected[@]}" -gt 0 ] || selected=("${BASH_SUITES[@]}" lint lua)
   for suite in "${selected[@]}"; do
     # Lint and Lua have their own runners; everything else is tests/<name>.sh.
     case "$suite" in
       lint) run_lint || failures=$((failures + 1)) ;;
       lua) run_lua_suites || failures=$((failures + 1)) ;;
-      *) run_suite "$suite" bash "$REPO_ROOT/tests/$suite.sh" || failures=$((failures + 1)) ;;
+      # Every other name is a bash suite file tests/test-<name>.sh.
+      *) run_suite "$suite" bash "$REPO_ROOT/tests/test-$suite.sh" || failures=$((failures + 1)) ;;
     esac
   done
   printf '%d suite(s) failed\n' "$failures"
   [ "$failures" -eq 0 ]
 }
 
+# The exit status of main is the exit status of the whole run.
 main "$@"

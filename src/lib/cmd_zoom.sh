@@ -17,6 +17,7 @@ zoomctl_parse_notches() {
     notches=$((10#$notches))
     (( notches >= 1 && notches <= ZOOMCTL_MAX_NOTCHES )) && { printf '%s\n' "$notches"; return 0; }
   fi
+  # Anything else, including an empty string, is a usage mistake.
   zoomctl_usage_error "notches must be a whole number from 1 to $ZOOMCTL_MAX_NOTCHES"
 }
 
@@ -58,12 +59,14 @@ zoomctl_command_out() {
 zoomctl_command_zoom() {
   local factor
   [ "$#" -eq 1 ] || { zoomctl_usage_error "zoom needs exactly one factor"; return 2; }
+  # The schema supplies the allowed zoom range.
   zoomctl_schema_load || return 1
   # The schema's zoom range (1..10) bounds absolute factors too.
   factor="$(zoomctl_schema_validate ZOOM_MAX "$1")" || {
     zoomctl_error "'$1' is not a zoom factor ($(zoomctl_schema_allowed_text ZOOM_MAX))"
     return 1
   }
+  # Engine and fallback both clamp the factor to the configured bounds.
   zoomctl_engine_forward "$(zoomctl_lua_call set_zoom "$factor")" \
     zoomctl_legacy_run set "$factor"
 }
@@ -94,6 +97,16 @@ zoomctl_legacy_filter_unsupported() {
   zoomctl_error "colour filters are not supported on the legacy config; they need the Lua engine"
 }
 
+# zoomctl_parse_filter_name — validate a filter name against the schema enum.
+# Args:    $1 filter name
+# Returns: 0 known; 1 unknown (message on stderr); stdout: the canonical name
+# Globals: reads the schema tables
+zoomctl_parse_filter_name() {
+  # The error lists the valid names so a typo is fixed at once.
+  zoomctl_schema_validate FILTER "$1" ||
+    zoomctl_error "unknown filter '$1' ($(zoomctl_schema_allowed_text FILTER))"
+}
+
 # zoomctl_parse_filter_action — validate the argument of `filter`.
 # Args:    $1 on|off|toggle|<filter name> (default toggle)
 # Returns: 0 valid; 1 unknown; stdout: the canonical action word
@@ -104,8 +117,7 @@ zoomctl_parse_filter_action() {
   # Switch words first, then the filter names of the schema enum.
   case "${action,,}" in
     on|off|toggle) printf '%s\n' "${action,,}" ;;
-    *) zoomctl_schema_validate FILTER "$action" ||
-         zoomctl_error "unknown filter '$action' ($(zoomctl_schema_allowed_text FILTER))" ;;
+    *) zoomctl_parse_filter_name "$action" ;;
   esac
 }
 
@@ -116,6 +128,7 @@ zoomctl_parse_filter_action() {
 zoomctl_command_filter() {
   local action
   [ "$#" -le 1 ] || { zoomctl_usage_error "filter takes at most one argument"; return 2; }
+  # The word is validated against the schema before it can reach Lua.
   action="$(zoomctl_parse_filter_action "${1:-}")" || return 1
   # The action word is a whitelisted token, rendered as a safe Lua string.
   zoomctl_engine_forward "$(zoomctl_lua_call filter "$(zoomctl_lua_quote "$action")")" \
@@ -142,6 +155,7 @@ zoomctl_command_preview() {
   if [ "${1:-}" = '--end' ]; then
     [ "$#" -eq 1 ] || { zoomctl_usage_error "preview --end takes no further arguments"; return 2; }
     zoomctl_engine_preview_end
+    # Nothing follows --end; hand back the status of the call above.
     return
   fi
   zoomctl_engine_preview "$@"

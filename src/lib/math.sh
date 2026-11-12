@@ -18,6 +18,7 @@ zoomctl_is_float() {
 zoomctl_float_to_centi() {
   local text="$1"
   local sign=1
+  # Pieces of the decimal text and the running result.
   local whole fraction centi
   # Reject anything that is not a number before any arithmetic.
   zoomctl_is_float "$text" || return 1
@@ -30,6 +31,7 @@ zoomctl_float_to_centi() {
   whole="${text%%.*}"
   fraction=""
   [[ "$text" == *.* ]] && fraction="${text#*.}"
+  # Pad so slicing works for inputs like 1 or 1.5.
   fraction="${fraction}000"
   # Hundredths come from two digits, the third digit decides the rounding.
   centi=$((10#$whole * 100 + 10#${fraction:0:2}))

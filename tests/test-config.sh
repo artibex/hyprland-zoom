@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# config.sh — suite: layered config (C2), 0.1 compat, set/get/unset/reset-config, porcelain.
+# test-config.sh — suite: layered config (C2), 0.1 compat, set/get/unset/reset-config, porcelain.
 set -u
 
-source "$(dirname -- "${BASH_SOURCE[0]}")/lib/testlib.sh"
+source "$(dirname -- "${BASH_SOURCE[0]}")/lib/test-lib.sh"
 test_init config
 load_zoomctl_libs
 
