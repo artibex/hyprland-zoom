@@ -76,8 +76,10 @@ Hyprland (errors → `hl.notification` / log + return `"error=<text>"`).
 - `HyprZoom.set_zoom(factor)`, `HyprZoom.toggle()`, `HyprZoom.reset()`.
 - `HyprZoom.filter(action)` — `"on" | "off" | "toggle" | <filter name>`.
 - `HyprZoom.reload()` — re-read schema + config files, re-apply binds, tracking, filter, animation.
-- `HyprZoom.preview(overrides_table)` — apply overrides (schema keys → values) live without
-  writing anything; `HyprZoom.preview_end()` — drop overrides, re-apply the saved config.
+- `HyprZoom.preview(overrides_table)` — apply overrides (schema keys → values as canonical
+  STRINGS exactly as in a config file, e.g. `{ZOOM_STEP="0.15"}`; the engine validates them with
+  its config validator) live without writing anything; `HyprZoom.preview_end()` — drop
+  overrides, re-apply the saved config.
 - `HyprZoom.status()` — `key=value` pairs separated by `\n` (C6 keys).
 - The engine is idempotent on reload (`HyprZoom = HyprZoom or {}`; binds are unbound before
   rebinding) and never `io.popen`s in a bind callback (100 ms Hyprland budget).
@@ -115,7 +117,7 @@ file `last_zoom` under `$XDG_RUNTIME_DIR/zoomctl/` is read once as `saved_zoom` 
 ### C7 — Default binds (all from the schema, modifiers `BIND_MODIFIERS`, default `SUPER + ALT`)
 | Action | Default | Schema key |
 |---|---|---|
-| Zoom in / out | scroll up / down | `BIND_SCROLL` |
+| Zoom in / out | scroll down / up (`down-in`; `up-in` reverses) | `BIND_SCROLL`, `BIND_SCROLL_DIRECTION` |
 | Zoom in / out (keys, repeating) | `I` / `O` | `BIND_KEY_IN`, `BIND_KEY_OUT` |
 | Toggle zoom | `0` and middle click | `BIND_KEY_TOGGLE`, `BIND_MOUSE_TOGGLE` |
 | Toggle colour filter | `C` | `BIND_KEY_FILTER` |
