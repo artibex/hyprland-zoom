@@ -4,7 +4,10 @@
 What it proves, against the real compositor:
   * the plugin loads through `hl.plugin.load` and its config values map to the Lua config;
   * for margins 0.05 / 0.25 / 0.40 the camera measured from screenshots equals the prediction
-    of plugin/camera_math.hpp (tool: tests/plugin/camera_predict.cpp);
+    of plugin/camera_math.hpp (tool: tests/plugin/camera_predict.cpp), at zoom 1.5, 2.0 and 4.0,
+    with an off-centre zoom-in (exercises the anti-jerk write-back of the camera state) and on
+    an output with scale 1.5;
+  * changing the margin while zoomed re-centres the view once (documented behaviour);
   * `enabled=false` and unloading the plugin restore Hyprland's native camera;
   * adding a monitor while zoomed and `hyprctl reload` do not break anything;
   * a plugin build that cannot find its symbol refuses to load instead of hooking blindly.
@@ -19,8 +22,10 @@ Exit:  0 all checks passed; 1 a check failed; 77 prerequisites missing (skipped)
 
 # Standard library only: the test must run on a bare CI image.
 import argparse
+import json
 import os
 import shutil
+from dataclasses import dataclass
 
 # Process control and scratch space for the nested instance.
 import subprocess
@@ -39,16 +44,17 @@ import png_probe  # needs the sys.path entry above
 REPO_ROOT = Path(__file__).resolve().parents[2]
 NESTED_SCRIPT = REPO_ROOT / "tests" / "integration" / "nested-hyprland.sh"
 PLUGIN_SO = REPO_ROOT / "plugin" / "hyprzoom.so"
-# Output geometry of the virtual monitor and the zoom level under test.
+# LOGICAL output geometry of the virtual monitor (also with a scaled output, see SCALED_MODE).
 WIDTH, HEIGHT = 1280, 720
-ZOOM = 2.0
 # Margins under test; 0.05 is the native behaviour, the others need the plugin.
 MARGINS = (0.05, 0.25, 0.40)
-# Zoom-in point and the pointer path afterwards: pan right/down, then left/up (monitor pixels).
-ANCHOR = (640, 360)
-POINTER_PATH = ((1000, 560), (300, 150))
-# Allowed difference between measured and predicted camera: gradient step plus pointer rounding.
-TOLERANCE_PX = 6.0
+# Allowed difference between measured and predicted camera. The gradient encodes the pattern
+# position in an 8-bit colour: one step is 1280/256 = 5 px horizontally (720/256 = 2.8 px
+# vertically), so the measurement itself is only good to +-2.5 px; 3 px adds rounding. A margin
+# error of 0.005 (6.4 px of the safe box at zoom 2) is therefore detectable.
+TOLERANCE_PX = 3.0
+# Physical mode and scale of the HiDPI scenario: 1920x1080 at 1.5 is the same 1280x720 logical.
+SCALED_MODE, SCALE = "1920x1080@60", 1.5
 # Hyprland needs this long to finish the zoom animation (speed 3) before a measurement.
 ZOOM_SETTLE_SECONDS = 1.8
 # Lua of the nested instance: virtual monitor, plugin via hl.plugin.load, detached-camera zoom.
@@ -64,6 +70,29 @@ hl.config({{
 -- The zoom animation must stay enabled, otherwise Hyprland reuses a stale camera (E9).
 hl.animation({{ leaf = "zoomFactor", enabled = true, speed = 3, bezier = "default" }})
 """
+
+
+@dataclass(frozen=True)
+class Scene:
+    """One camera experiment: zoom level, zoom-in point, pointer path and output scale."""
+
+    zoom: float
+    anchor: tuple
+    path: tuple
+    scale: float = 1.0
+
+
+# The original experiment: zoom in at the centre, pan right/down, then left/up (logical pixels).
+CENTRE = Scene(2.0, (640, 360), ((1000, 560), (300, 150)))
+# Other zoom levels (the view is 1280/zoom wide, so the border zones differ in pixels).
+ZOOM_1_5 = Scene(1.5, (640, 360), ((1100, 640), (200, 100)))
+ZOOM_4 = Scene(4.0, (640, 360), ((900, 500), (400, 200)))
+# Zoom in far from the centre: Hyprland's anti-jerk rule switches the margin off until the
+# pointer enters the safe box. Measuring at the anchor itself (first path entry) catches a hook
+# that fails to write the anti-jerk flag back: it would pan at once.
+OFF_CENTRE = Scene(2.0, (100, 100), ((100, 100), (640, 360), (1000, 600), (300, 150)))
+# The same experiment on an output with scale 1.5.
+SCALED = Scene(2.0, (640, 360), ((1000, 560), (300, 150)), SCALE)
 
 
 class Nested:
@@ -154,8 +183,11 @@ class Nested:
         """
         return "Hyprland" in self.ctl("version")
 
-    def camera(self) -> tuple | None:
+    def camera(self, zoom: float) -> tuple | None:
         """Measures the camera top-left from a screenshot of the gradient.
+
+        Args:
+            zoom: Zoom level the screenshot was taken at.
 
         Returns:
             (x, y) in pattern pixels, or None when the gradient is not visible.
@@ -164,12 +196,15 @@ class Nested:
         shot = str(self.work_dir / "shot.png")
         self.harness("shot", shot)
         image = png_probe.read_png(shot)
+        # A scaled output is captured in physical pixels; probe positions are logical.
+        ratio = image[0] / WIDTH
         # Two probe pixels: the centre normally works, the corner is a fallback near borders.
         for screen_x, screen_y in ((WIDTH // 2, HEIGHT // 2), (60, 60)):
-            point = png_probe.pattern_point(png_probe.pixel(image, screen_x, screen_y))
+            pixel = png_probe.pixel(image, round(screen_x * ratio), round(screen_y * ratio))
+            point = png_probe.pattern_point(pixel)
             # The pattern point at a screen pixel minus the zoomed offset is the camera origin.
             if point:
-                return round(point[0] - screen_x / ZOOM), round(point[1] - screen_y / ZOOM)
+                return round(point[0] - screen_x / zoom), round(point[1] - screen_y / zoom)
         return None
 
     def reset_camera_state(self) -> None:
@@ -213,40 +248,45 @@ class LiveTest:
         if not condition:
             self.failed.append(description)
 
-    def predict(self, margin: float) -> list:
+    def predict(self, margin: float, scene: Scene) -> list:
         """Asks the compiled camera maths for the camera after each pointer move.
 
         Args:
             margin: Edge margin.
+            scene: The experiment (zoom, anchor, path, output scale).
 
         Returns:
-            List of (x, y) camera origins, one per entry of POINTER_PATH.
+            List of (x, y) camera origins, one per entry of the scene's path.
         """
         # The predictor takes the anchor first, then every pointer position as "x,y".
-        points = [f"{x},{y}" for x, y in (ANCHOR, *POINTER_PATH)]
-        command = [str(self.predictor), str(margin), str(ZOOM), str(WIDTH), str(HEIGHT), *points]
+        points = [f"{x},{y}" for x, y in (scene.anchor, *scene.path)]
+        geometry = [str(scene.zoom), str(WIDTH), str(HEIGHT), str(scene.scale)]
+        command = [str(self.predictor), str(margin), *geometry, *points]
         # One "x y" line per pointer position comes back.
         output = subprocess.run(command, text=True, capture_output=True, check=True).stdout
         return [tuple(float(value) for value in line.split()) for line in output.splitlines()]
 
-    def measure_path(self) -> list:
-        """Zooms in at ANCHOR, walks POINTER_PATH and measures the camera after each step.
+    def measure_path(self, scene: Scene) -> list:
+        """Zooms in at the scene's anchor, walks its path and measures the camera after each step.
+
+        Args:
+            scene: The experiment.
 
         Returns:
             List of measured (x, y) camera origins.
         """
         # Start every measurement from a freshly forgotten camera and the anchor position.
         self.nested.reset_camera_state()
-        self.nested.move_pointer(*ANCHOR)
+        self.nested.move_pointer(*scene.anchor)
         # Zoom in at the anchor and wait for the animation to settle.
-        self.nested.lua(f"hl.config({{cursor={{zoom_factor={ZOOM}}}}})")
+        self.nested.lua(f"hl.config({{cursor={{zoom_factor={scene.zoom}}}}})")
         time.sleep(ZOOM_SETTLE_SECONDS)
         # Walk the path and measure after every pointer move.
         measured = []
-        for x, y in POINTER_PATH:
+        for x, y in scene.path:
             self.nested.move_pointer(x, y)
-            # camera() already waited for a rendered frame inside move_pointer.
-            measured.append(self.nested.camera())
+            # camera() needs a rendered frame, which move_pointer already waited for.
+            measured.append(self.nested.camera(scene.zoom))
         return measured
 
     @staticmethod
@@ -268,20 +308,21 @@ class LiveTest:
             for m, e in zip(measured, expected)
         )
 
-    def check_path(self, margin: float, description: str) -> None:
-        """Measures the current camera path and compares it with the prediction for a margin.
+    def check_path(self, margin: float, description: str, scene: Scene = CENTRE) -> None:
+        """Measures the camera path of a scene and compares it with the prediction for a margin.
 
         Args:
             margin: Margin whose prediction applies.
             description: Check title.
+            scene: The experiment (default: the centre anchor at zoom 2).
         """
-        expected = self.predict(margin)
-        measured = self.measure_path()
+        expected = self.predict(margin, scene)
+        measured = self.measure_path(scene)
         # Whether Hyprland really forgot the old camera depends on frame scheduling (S1 Q7 quirk,
         # present in native Hyprland too); a genuine hook bug is deterministic and fails twice.
         retried = not self.matches(measured, expected)
         if retried:
-            measured = self.measure_path()
+            measured = self.measure_path(scene)
         # The note keeps a flaky-reset retry visible in the log instead of hiding it.
         note = " (after 1 retry: camera reset is timing dependent)" if retried else ""
         self.check(
@@ -319,6 +360,87 @@ class LiveTest:
             # Set the margin through the same Lua path the engine will use.
             self.nested.lua(f"hl.config({{plugin={{hyprzoom={{edge_margin={margin}}}}}}})")
             self.check_path(margin, f"margin {margin:.2f}")
+
+    def check_zoom_levels(self) -> None:
+        """Measures zoom 1.5 and 4.0 (the border zone is 1280/zoom px wide, so it differs)."""
+        # One margin that is clearly not native, so a hook that is not in charge shows up.
+        self.nested.lua("hl.config({plugin={hyprzoom={edge_margin=0.25}}})")
+        for scene, name in ((ZOOM_1_5, "zoom 1.5"), (ZOOM_4, "zoom 4.0")):
+            self.check_path(0.25, f"{name}, margin 0.25", scene)
+
+    def check_off_centre_anchor(self) -> None:
+        """Zooms in far from the centre: only a hook that keeps Hyprland's anti-jerk flag passes.
+
+        The anchor lies outside the safe box, so Hyprland (and the plugin) leave the padding off
+        and the view must not jump. A hook that forgets to write `m_padCamEdges` back would pan
+        at once; this check measures at the anchor itself (first path entry).
+        """
+        self.nested.lua("hl.config({plugin={hyprzoom={edge_margin=0.30}}})")
+        self.check_path(0.30, "off-centre zoom-in keeps the view still (anti-jerk), margin 0.30",
+                        OFF_CENTRE)
+
+    def check_margin_change_while_zoomed(self) -> None:
+        """Raises the margin while zoomed with the pointer in the new border zone (R-P3-05).
+
+        Measured behaviour (documented in docs/plugin.md): the view re-centres ONCE, by exactly
+        the overshoot of the new safe box, on the next rendered frame; there is no oscillation
+        and no extra jump. The pointer rests on the new safe-box rim afterwards.
+        """
+        nested = self.nested
+        # Native margin first: pan right/down so the pointer rests on the 0.9 box rim.
+        nested.lua("hl.config({plugin={hyprzoom={edge_margin=0.05}}})")
+        nested.reset_camera_state()
+        nested.move_pointer(*CENTRE.anchor)
+        nested.lua(f"hl.config({{cursor={{zoom_factor={CENTRE.zoom}}}}})")
+        time.sleep(ZOOM_SETTLE_SECONDS)
+        nested.move_pointer(1000, 560)
+        before = nested.camera(CENTRE.zoom)
+        # The new margin applies on the next frame; a one pixel pointer move forces that frame.
+        nested.lua("hl.config({plugin={hyprzoom={edge_margin=0.40}}})")
+        nested.move_pointer(1000, 561)
+        after = nested.camera(CENTRE.zoom)
+        # The pointer rests on the safe-box rim: camera = pointer - (1 - margin) * view size.
+        view_w, view_h = WIDTH / CENTRE.zoom, HEIGHT / CENTRE.zoom
+        expected = (1000 - 0.60 * view_w, 561 - 0.60 * view_h)
+        self.check(
+            before is not None and after is not None and self.matches([after], [expected]),
+            f"margin 0.05 -> 0.40 while zoomed re-centres once: {before} -> {after}, "
+            f"predicted {expected}",
+        )
+        # A second frame without any change must not move the view again (no oscillation).
+        nested.move_pointer(1000, 561, settle=0.6)
+        self.check(
+            self.matches([nested.camera(CENTRE.zoom)], [expected]),
+            "the view stays put after the margin change",
+        )
+
+    def monitor_scale(self) -> float:
+        """Reads the scale of HEADLESS-1 from `hyprctl monitors`.
+
+        Returns:
+            The scale, or 0.0 when the monitor is not listed.
+        """
+        monitors = json.loads(self.nested.ctl("-j", "monitors") or "[]")
+        return next((m["scale"] for m in monitors if m["name"] == "HEADLESS-1"), 0.0)
+
+    def check_output_scale(self) -> None:
+        """Repeats the camera experiment on a 1.5x scaled output (same logical geometry)."""
+        nested = self.nested
+        # 1920x1080 at scale 1.5 is 1280x720 logical, so the same predictions apply.
+        nested.lua(f'hl.monitor({{output="HEADLESS-1", mode="{SCALED_MODE}", position="0x0", '
+                   f"scale={SCALE}}})")
+        time.sleep(2.5)
+        # A headless output may refuse the scale; then the scenario cannot run (no failure).
+        if abs(self.monitor_scale() - SCALE) > 0.01:
+            print("SKIP  output scale 1.5: the headless output did not accept it", flush=True)
+            return
+        for margin in (0.05, 0.25):
+            nested.lua(f"hl.config({{plugin={{hyprzoom={{edge_margin={margin}}}}}}})")
+            self.check_path(margin, f"output scale 1.5, margin {margin:.2f}", SCALED)
+        # Back to the plain output for the remaining checks.
+        nested.lua(f'hl.monitor({{output="HEADLESS-1", mode="{WIDTH}x{HEIGHT}@60", '
+                   'position="0x0", scale=1}})')
+        time.sleep(2.0)
 
     def check_native_fallbacks(self) -> None:
         """Checks `enabled=false` and unloading both give the native (margin 0.05) camera."""
@@ -379,7 +501,8 @@ class LiveTest:
         shutil.copytree(REPO_ROOT / "plugin", bad_dir, ignore=shutil.ignore_patterns("*.so"))
         # The Makefile's EXTRA_CXXFLAGS swaps the searched symbol for one that does not exist.
         flags = 'EXTRA_CXXFLAGS=-DHYPRZOOM_HOOKED_SYMBOL=\\"zoomWithNoSuchFunction\\"'
-        command = ["make", "-C", str(bad_dir), flags]
+        # The copy lives outside the repository, so it cannot read ../VERSION: pass a version.
+        command = ["make", "-C", str(bad_dir), flags, "HYPRZOOM_VERSION=0.0.0-test"]
         build = subprocess.run(command, capture_output=True, text=True, check=False)
         self.check(build.returncode == 0, "test build with a wrong symbol name compiles")
         # Unload the good plugin so the name `hyprzoom` is free, then try the bad one.
@@ -407,11 +530,15 @@ class LiveTest:
         try:
             print("nested instance:", self.nested.harness("start", str(config)), flush=True)
             # imv shows the gradient 1:1 on the whole virtual output, full screen.
-            self.nested.harness("run", "imv-wayland", "-f", "-s", "none", str(gradient))
+            self.nested.harness("run", "imv-wayland", "-f", "-s", "full", str(gradient))
             time.sleep(2.5)
             # Cheap checks first, the destructive ones (unload, refusal) last.
             self.check_plugin_basics()
             self.check_margins()
+            self.check_zoom_levels()
+            self.check_off_centre_anchor()
+            self.check_margin_change_while_zoomed()
+            self.check_output_scale()
             self.check_native_fallbacks()
             # The plugin was unloaded above; this check loads it again like hyprpm does.
             self.check_reload_and_monitor_add()
