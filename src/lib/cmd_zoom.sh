@@ -7,11 +7,11 @@
 ZOOMCTL_MAX_NOTCHES=100
 
 # zoomctl_parse_notches — validate an optional notch count.
-# Args:    $1 count text or empty (default 1)
+# Args:    $1 count text (an empty string is invalid, the caller supplies the default 1)
 # Returns: 0 valid; 2 not a whole number from 1 to ZOOMCTL_MAX_NOTCHES; stdout: the count
 # Globals: reads ZOOMCTL_MAX_NOTCHES
 zoomctl_parse_notches() {
-  local notches="${1:-1}"
+  local notches="$1"
   # Digits only, so the value is safe inside Lua code and bash arithmetic.
   if [[ "$notches" =~ ^[0-9]{1,3}$ ]]; then
     notches=$((10#$notches))
@@ -29,7 +29,7 @@ zoomctl_command_step() {
   local notches
   # Only the optional notch count may follow the direction.
   [ "$#" -le 2 ] || { zoomctl_usage_error "$direction takes at most one argument"; return 2; }
-  notches="$(zoomctl_parse_notches "${2:-}")" || return 2
+  notches="$(zoomctl_parse_notches "${2-1}")" || return 2
   # zoom_in / zoom_out in the engine; the fallback steps by the same notch count.
   zoomctl_engine_forward "$(zoomctl_lua_call "zoom_$direction" "$notches")" \
     zoomctl_legacy_run step "$direction" "$notches"
