@@ -1,0 +1,35 @@
+# hyprland-zoom settings schema — single source of keys, types, defaults and ranges.
+# Format and rules: docs/architecture.md, contract C1.
+# KEY|TYPE|DEFAULT|CONSTRAINT|GROUP|LABEL|HELP
+
+ZOOM_STEP|float|0.10|0.01..2.00|zoom|Zoom step|How much one scroll notch or key press zooms. In multiply mode 0.10 means 10 % of the current zoom.
+ZOOM_STEP_MODE|enum|multiply|multiply,add|zoom|Step mode|multiply: even steps at every zoom level (recommended). add: always the same fixed amount.
+ZOOM_MIN|float|1.00|1.00..10.00|zoom|Minimum zoom|Zooming out stops here. 1.00 is the normal, unzoomed screen.
+ZOOM_MAX|float|10.00|1.00..10.00|zoom|Maximum zoom|Zooming in stops here. Hyprland supports up to 10x.
+ZOOM_RESET|float|1.00|1.00..10.00|zoom|Reset zoom|Zoom level used by reset and as the "off" side of the toggle.
+ZOOM_ANIMATION_SPEED|float|1.50|0.10..20.00|zoom|Animation duration|Duration of the zoom animation in tenths of a second. Smaller is faster; 0.10 is practically instant.
+ZOOM_SMOOTH_IMAGES|bool|on||zoom|Smooth images|Smooth the magnified image. Turn off for crisp, pixel-exact magnification.
+ZOOM_RESTORE_ON_RELOAD|bool|on||advanced|Keep zoom on config reload|Restore the zoom level and filter after Hyprland reloads its configuration.
+
+ZOOM_TRACKING|enum|centered|centered,edge,margin,follow|tracking|Pointer tracking|centered: the pointer stays in the middle of the zoomed view. edge: the view moves when the pointer reaches the edge. margin: like edge with an adjustable margin (needs the hyprzoom plugin). follow: the view slides proportionally with the pointer.
+ZOOM_EDGE_MARGIN|float|0.15|0.00..0.45|tracking|Edge margin|Width of the protective margin per side as a fraction of the zoomed view. Used by the margin mode.
+
+FILTER|enum|smart-invert|invert,smart-invert,grayscale,grayscale-invert,high-contrast,protanopia,deuteranopia,tritanopia|filter|Colour filter|Which filter the filter shortcut switches on. smart-invert turns bright screens dark but keeps colours recognisable.
+FILTER_ACTIVE|bool|off||filter|Filter active|Whether the colour filter is currently switched on.
+FILTER_ONLY_WHEN_ZOOMED|bool|off||filter|Only while zoomed|Apply the colour filter only while the screen is zoomed in.
+FILTER_INTENSITY|float|1.00|0.00..1.00|filter|Filter strength|Blend between the original image (0.00) and the full filter (1.00).
+FILTER_CONTRAST|float|1.00|0.50..3.00|filter|Contrast|1.00 keeps the contrast; higher values separate light and dark more strongly.
+FILTER_BRIGHTNESS|float|0.00|-0.50..0.50|filter|Brightness|Shifts the overall brightness after the filter.
+FILTER_SATURATION|float|1.00|0.00..2.00|filter|Saturation|0.00 removes colour, 1.00 keeps it, 2.00 doubles it.
+
+BIND_MODIFIERS|mods|SUPER + ALT||shortcuts|Modifier keys|Modifier keys held for every zoom shortcut, joined with " + ".
+BIND_SCROLL|bool|on||shortcuts|Zoom with the scroll wheel|Modifiers + scroll up/down zooms in and out.
+BIND_MOUSE_TOGGLE|bool|on||shortcuts|Toggle with middle click|Modifiers + middle mouse button toggles the zoom.
+BIND_KEY_IN|key|I||shortcuts|Zoom in key|Key that zooms in (held down it repeats). Empty disables it.
+BIND_KEY_OUT|key|O||shortcuts|Zoom out key|Key that zooms out (held down it repeats). Empty disables it.
+BIND_KEY_TOGGLE|key|0||shortcuts|Toggle zoom key|Switches between the reset zoom and the last zoom level.
+BIND_KEY_FILTER|key|C||shortcuts|Toggle filter key|Switches the colour filter on and off.
+BIND_KEY_SETTINGS|key|Z||shortcuts|Open settings key|Opens the hyprland-zoom settings window.
+BIND_TAKEOVER_OMARCHY|bool|on||shortcuts|Take over Omarchy zoom keys|Routes Omarchy's own zoom keys to hyprland-zoom and frees modifiers + scroll from Omarchy's group cycling.
+
+SCROLL_EVENT_DELAY_MS|int|0|0..300|advanced|Scroll event delay|Hyprland ignores further scroll notches for this long and passes them to the window instead. 0 lets fast scrolling zoom smoothly.

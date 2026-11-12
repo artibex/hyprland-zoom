@@ -1,3 +1,5 @@
 /pkg/
 *.pkg.tar.*
 *.tar.gz
+tests/integration/work/
+__pycache__/
